@@ -60,10 +60,13 @@ install_tpm() {
   if [[ ! -d "$tpm_dir" ]]; then
     log "Installing tmux plugin manager (TPM)..."
     git clone https://github.com/tmux-plugins/tpm "$tpm_dir"
-    log "TPM installed. Press prefix + I in tmux to install plugins."
   else
     log "TPM already installed"
   fi
+
+  # Install plugins automatically
+  log "Installing tmux plugins..."
+  "$tpm_dir/bin/install_plugins"
 }
 
 main() {
@@ -77,6 +80,14 @@ main() {
 
   # Neovim (all platforms)
   backup_and_link "$DOTFILES_DIR/nvim" "$nvim_config_dir"
+
+  # Install neovim plugins
+  if command -v nvim &>/dev/null; then
+    log "Installing neovim plugins..."
+    nvim --headless "+Lazy! sync" +qa
+  else
+    warn "nvim not found, skipping plugin install"
+  fi
 
   # Tmux (skip on native Windows - use WSL for tmux)
   if [[ "$os" == "windows-bash" ]]; then
