@@ -3,6 +3,34 @@ set -euo pipefail
 
 log() { echo "[dotfiles] $*"; }
 warn() { echo "[dotfiles] WARNING: $*" >&2; }
+error() { echo "[dotfiles] ERROR: $*" >&2; exit 1; }
+
+detect_os() {
+  case "$(uname -s)" in
+    Linux*)
+      if grep -qEi "(Microsoft|WSL)" /proc/version 2>/dev/null; then
+        echo "wsl"
+      else
+        echo "linux"
+      fi
+      ;;
+    Darwin*) echo "macos" ;;
+    CYGWIN*|MINGW*|MSYS*) echo "windows-bash" ;;
+    *) error "Unsupported OS: $(uname -s)" ;;
+  esac
+}
+
+get_nvim_config_dir() {
+  local os="$1"
+  case "$os" in
+    windows-bash)
+      echo "$APPDATA/nvim"
+      ;;
+    *)
+      echo "$HOME/.config/nvim"
+      ;;
+  esac
+}
 
 remove_link() {
   local dest="$1"
@@ -26,10 +54,19 @@ remove_link() {
 }
 
 main() {
+  local os
+  os=$(detect_os)
+  log "Detected OS: $os"
   log "Cleaning up dotfiles symlinks..."
 
-  remove_link "$HOME/.tmux.conf"
-  remove_link "$HOME/.config/nvim"
+  local nvim_config_dir
+  nvim_config_dir=$(get_nvim_config_dir "$os")
+
+  remove_link "$nvim_config_dir"
+
+  if [[ "$os" != "windows-bash" ]]; then
+    remove_link "$HOME/.tmux.conf"
+  fi
 
   log "Cleanup complete!"
   log "Note: TPM plugins left in ~/.tmux/plugins (remove manually if desired)"
