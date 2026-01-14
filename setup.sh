@@ -22,11 +22,55 @@ detect_os() {
   esac
 }
 
+install_packages() {
+  local os="$1"
+  shift
+  local packages=("$@")
+
+  log "Installing packages: ${packages[*]}"
+
+  case "$os" in
+    macos)
+      if ! command -v brew &>/dev/null; then
+        error "Homebrew not found. Install from https://brew.sh"
+      fi
+      brew install "${packages[@]}"
+      ;;
+    linux|wsl)
+      if command -v apt-get &>/dev/null; then
+        sudo apt-get update
+        sudo apt-get install -y "${packages[@]}"
+      elif command -v dnf &>/dev/null; then
+        sudo dnf install -y "${packages[@]}"
+      elif command -v pacman &>/dev/null; then
+        sudo pacman -Sy --noconfirm "${packages[@]}"
+      else
+        error "No supported package manager found (apt, dnf, pacman)"
+      fi
+      ;;
+    *)
+      error "Cannot install packages on $os"
+      ;;
+  esac
+}
+
+ensure_installed() {
+  local os="$1"
+  local cmd="$2"
+  local pkg="${3:-$cmd}"  # package name, defaults to command name
+
+  if ! command -v "$cmd" &>/dev/null; then
+    log "$cmd not found, installing..."
+    install_packages "$os" "$pkg"
+  else
+    log "$cmd already installed"
+  fi
+}
+
 get_nvim_config_dir() {
   local os="$1"
   case "$os" in
     windows-bash)
-      # Git Bash / MSYS2 on Windows
       echo "$APPDATA/nvim"
       ;;
     *)
@@ -40,7 +84,6 @@ backup_and_link() {
   local dest="$2"
   local backup="${dest}.backup.$(date +%Y%m%d%H%M%S)"
 
-  # Ensure parent directory exists
   mkdir -p "$(dirname "$dest")"
 
   if [[ -L "$dest" ]]; then
@@ -55,6 +98,11 @@ backup_and_link() {
   ln -s "$src" "$dest"
 }
 
+install_nvim_plugins() {
+  log "Installing neovim plugins..."
+  nvim --headless "+Lazy! sync" +qa
+}
+
 install_tpm() {
   local tpm_dir="$HOME/.tmux/plugins/tpm"
   if [[ ! -d "$tpm_dir" ]]; then
@@ -64,7 +112,6 @@ install_tpm() {
     log "TPM already installed"
   fi
 
-  # Install plugins automatically
   log "Installing tmux plugins..."
   "$tpm_dir/bin/install_plugins"
 }
@@ -75,21 +122,19 @@ main() {
   log "Detected OS: $os"
   log "Setting up dotfiles from $DOTFILES_DIR"
 
-  local nvim_config_dir
-  nvim_config_dir=$(get_nvim_config_dir "$os")
-
-  # Neovim (all platforms)
-  backup_and_link "$DOTFILES_DIR/nvim" "$nvim_config_dir"
-
-  # Install neovim plugins
-  if command -v nvim &>/dev/null; then
-    log "Installing neovim plugins..."
-    nvim --headless "+Lazy! sync" +qa
-  else
-    warn "nvim not found, skipping plugin install"
+  # Install dependencies
+  ensure_installed "$os" "nvim" "neovim"
+  if [[ "$os" != "windows-bash" ]]; then
+    ensure_installed "$os" "tmux"
   fi
 
-  # Tmux (skip on native Windows - use WSL for tmux)
+  # Neovim config
+  local nvim_config_dir
+  nvim_config_dir=$(get_nvim_config_dir "$os")
+  backup_and_link "$DOTFILES_DIR/nvim" "$nvim_config_dir"
+  install_nvim_plugins
+
+  # Tmux config (skip on native Windows)
   if [[ "$os" == "windows-bash" ]]; then
     warn "Skipping tmux on native Windows. Use WSL for tmux support."
   else
