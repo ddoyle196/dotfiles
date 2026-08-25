@@ -25,6 +25,11 @@ REG="$HOME/.claude/cockpit/threads"
 # way an empty tab used to hold a place for work that had not arrived.
 TOPICS="$HOME/.claude/cockpit/topics.json"
 PROJ="$HOME/.claude/projects/${CWD//\//-}"
+# A conversation remembers the directory it was started in, so resuming puts it
+# back where it belongs instead of wherever the cockpit happens to default to.
+# Entries written before this existed carry no cwd and fall back to COCKPIT_DIR.
+_cwd_for()  { local c; c=$(jq -r '.cwd // ""' "$REG/$1.json" 2>/dev/null); print -r -- "${c:-$CWD}" }
+_proj_for() { print -r -- "$HOME/.claude/projects/${1//\//-}" }
 # Cockpit conversations run unattended in a background session, where a
 # permission prompt is a conversation stuck waiting on a pane nobody is looking
 # at. Daniel asked for these to never stop and ask.
@@ -99,6 +104,7 @@ new)
   _write "$id" topic   "$(jq -Rn --arg v "$topic" '$v')"
   _write "$id" label   "$(jq -Rn --arg v "$label" '$v')"
   _write "$id" created "$(date +%s)"
+  _write "$id" cwd     "$(jq -Rn --arg v "$CWD" '$v')"
   _topic_declare "$topic"
   tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" claude $CLAUDE_ARGS
   _quiet "$id"
@@ -113,6 +119,14 @@ register)  # adopt a transcript that has no process: recovery, and importing his
   _write "$id" label          "$(jq -Rn --arg v "$label" '$v')"
   _write "$id" claude_session "\"$sid\""
   _write "$id" created        "$(date +%s)"
+  # The transcript records the directory it ran in, which beats deriving it from
+  # the folder name: that slug is lossy when a path already contains a dash.
+  tcwd=""
+  for f in "$HOME/.claude/projects"/*/"$sid".jsonl(N); do
+    tcwd=$(grep -m1 -o '"cwd":"[^"]*"' "$f" | cut -d'"' -f4)
+    [[ -n "$tcwd" ]] && break
+  done
+  _write "$id" cwd "$(jq -Rn --arg v "${tcwd:-$CWD}" '$v')"
   _topic_declare "$topic"
   if [[ -f "$IDX/$sid.json" ]]; then
     _write "$id" recap      "$(jq -c '.recap // ""' "$IDX/$sid.json")"
@@ -129,10 +143,11 @@ start)  # bring a parked conversation back up, or no-op if it is already running
   _alive "$id" && { print "$id"; exit 0 }
   [[ -f "$REG/$id.json" ]] || { print -u2 "start: no such conversation $id"; exit 1 }
   sid=$(jq -r '.claude_session // ""' "$REG/$id.json")
-  if [[ -n "$sid" && -f "$PROJ/$sid.jsonl" ]]; then
-    tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" claude $CLAUDE_ARGS --resume "$sid"
+  cwd=$(_cwd_for "$id"); proj=$(_proj_for "$cwd")
+  if [[ -n "$sid" && -f "$proj/$sid.jsonl" ]]; then
+    tmux new-session -d -s "$id" -x 200 -y 50 -c "$cwd" claude $CLAUDE_ARGS --resume "$sid"
   else
-    tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" claude $CLAUDE_ARGS
+    tmux new-session -d -s "$id" -x 200 -y 50 -c "$cwd" claude $CLAUDE_ARGS
   fi
   _quiet "$id"
   print "$id"
@@ -140,6 +155,10 @@ start)  # bring a parked conversation back up, or no-op if it is already running
 
 adopt)  # migration: lift an existing pane into its own hosted session
   pane="${2:?pane id required}"
+  # Where the pane actually is, so a parked conversation resumes there and not
+  # in whatever directory the cockpit was configured with.
+  pcwd=$(tmux display -p -t "$pane" '#{pane_current_path}' 2>/dev/null)
+  [[ -n "$pcwd" ]] || pcwd="$CWD"
   topic="${3:-$(tmux display -p -t "$pane" '#{?@topic,#{@topic},#{window_name}}')}"
   label="${4:-$(tmux display -p -t "$pane" '#{?@label,#{@label},#{pane_title}}')}"
   id=$(_newid)
@@ -147,13 +166,17 @@ adopt)  # migration: lift an existing pane into its own hosted session
   tmux break-pane -d -s "$pane" -n "$id" 2>/dev/null || exit 1
   win=$(tmux list-windows -a -F '#{window_id} #{window_name}' | awk -v n="$id" '$2==n{print $1; exit}')
   [[ -z "$win" ]] && { print -u2 "adopt: lost the window after break-pane"; exit 1 }
-  tmux new-session -d -s "$id" -c "$CWD" 'sleep 2147483647'
+  tmux new-session -d -s "$id" -c "$pcwd" 'sleep 2147483647'
   tmux move-window -s "$win" -t "$id:" 2>/dev/null || exit 1
   tmux kill-window -t "$id:^" 2>/dev/null   # drop the placeholder
   _quiet "$id"
   _write "$id" topic   "$(jq -Rn --arg v "$topic" '$v')"
   _write "$id" label   "$(jq -Rn --arg v "$label" '$v')"
   _write "$id" created "$(date +%s)"
+  _write "$id" cwd     "$(jq -Rn --arg v "$pcwd" '$v')"
+  # Same as new/register: an adopted conversation's topic has to be declared, or
+  # it exists on the entry but never appears in the topic list.
+  _topic_declare "$topic"
   print "$id"
   ;;
 
