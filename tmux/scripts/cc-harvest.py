@@ -238,7 +238,12 @@ def harvest(reg_dir, proj_dir):
         if not rec:
             continue
         sid = rec.get("claude_session") or ""
-        path = os.path.join(proj_dir, sid + ".jsonl") if sid else ""
+        # Each conversation carries the directory it runs in, so its transcript
+        # sits under that path's project folder, not one global one.
+        cwd = rec.get("cwd") or ""
+        rec_proj = os.path.join(
+            HOME, ".claude", "projects", cwd.replace("/", "-")) if cwd else proj_dir
+        path = os.path.join(rec_proj, sid + ".jsonl") if sid else ""
         if not path or not os.path.exists(path):
             continue
         entry = refs.setdefault(tid, {"offsets": {}, "prs": {}})
