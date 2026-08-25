@@ -1,7 +1,62 @@
 #!/bin/sh
 # The cockpit is a view over tmux-hosted conversations; this is just the door.
-# --nvim opens the same registry in the nvim cockpit instead.
+#   --nvim    open the same registry in the nvim cockpit
+#   doctor    check this machine has everything the cockpit needs
 case "${1:-}" in
   --nvim) exec nvim -c Cockpit ;;
+  doctor) ;;
   *)      exec "$HOME/.tmux/scripts/cc-cockpit.sh" ;;
 esac
+
+fail=0
+ok()   { printf '  ok    %s\n' "$1"; }
+bad()  { printf '  FAIL  %s\n' "$1"; fail=$((fail + 1)); }
+warn_() { printf '  warn  %s\n' "$1"; }
+
+echo "Dependencies"
+for c in tmux jq python3 claude; do
+  command -v "$c" >/dev/null 2>&1 && ok "$c" || bad "$c is not on PATH"
+done
+command -v gh >/dev/null 2>&1 && ok "gh (optional)" || warn_ "gh missing: no pull-request badges"
+
+echo "Files"
+for f in cc-panel.sh cc-host.sh cc-cockpit.sh cc-list.py cc-harvest.py lib/cc-dir.sh; do
+  [ -e "$HOME/.tmux/scripts/$f" ] && ok "$f" || bad "missing ~/.tmux/scripts/$f - run setup.sh"
+done
+for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py; do
+  [ -e "$HOME/.claude/hooks/$f" ] && ok "$f" || bad "missing ~/.claude/hooks/$f - run setup.sh"
+done
+
+echo "Hooks"
+s="$HOME/.claude/settings.json"
+if [ -f "$s" ] && command -v jq >/dev/null 2>&1; then
+  jq -e '[.hooks.Stop[]?.hooks[]?.command] | map(test("cc-recap-trigger")) | any' "$s" >/dev/null 2>&1 &&
+    ok "recap hook registered" || bad "recap hook not in settings.json - list shows no summaries"
+  jq -e '[.hooks.PreToolUse[]?.hooks[]?.command] | map(test("nested-claude-md")) | any' "$s" >/dev/null 2>&1 &&
+    ok "nested CLAUDE.md hook registered" || warn_ "nested CLAUDE.md hook not registered"
+else
+  bad "no readable ~/.claude/settings.json"
+fi
+
+echo "State"
+for d in "$HOME/.claude/cockpit/threads" "$HOME/.claude/session-index"; do
+  [ -d "$d" ] && ok "${d#$HOME/}" || bad "missing $d"
+done
+
+echo "Directory"
+if [ -r "$HOME/.tmux/scripts/lib/cc-dir.sh" ]; then
+  . "$HOME/.tmux/scripts/lib/cc-dir.sh"
+  d=$(_cc_dir)
+  [ -d "$d" ] && ok "new conversations start in $d" ||
+    bad "configured directory does not exist: $d"
+else
+  bad "cannot resolve the cockpit directory"
+fi
+
+echo "Tmux"
+grep -q 'cc-cockpit.sh' "$HOME/.tmux.conf" 2>/dev/null &&
+  ok "prefix + a is bound" || bad "~/.tmux.conf has no cockpit binding"
+
+echo
+[ "$fail" -eq 0 ] && echo "All good." || echo "$fail problem(s) found."
+exit "$fail"

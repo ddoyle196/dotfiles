@@ -95,11 +95,22 @@ Rows show what each conversation needs from you (`answer`, `pick up`, `waiting`,
 `done`), whether it has spoken since you last looked, and any pull requests it
 has worked on.
 
-Set `COCKPIT_DIR` to the directory conversations should run in. It defaults to
-`~/Dev/project`, so on another machine export it somewhere your shell reads:
+A conversation starts unfiled. `t` makes a topic when you want one and `T` files
+a conversation into it once you can see what it turned out to be, rather than
+asking you to name a category before the work exists.
+
+Each conversation remembers the directory it was started in and resumes there,
+so one cockpit can span several projects. `setup.sh` asks once where *new* ones
+should start and records it in `~/.claude/cockpit/dir`; `COCKPIT_DIR` in the
+environment overrides it. Nothing needs adding to a shell rc - the tmux server
+usually has a stale environment anyway.
+
+Working below a subdirectory that has its own `CLAUDE.md` loads it on demand, so
+a cockpit rooted at a parent still picks up each subproject's conventions.
 
 ```sh
-export COCKPIT_DIR="$HOME/code"
+./setup.sh          # links everything, registers the hooks, asks for the directory
+cockpit doctor      # checks this machine has what the cockpit needs
 ```
 
 Needs `tmux`, `jq`, `python3` and the `claude` CLI. `gh` is optional and only

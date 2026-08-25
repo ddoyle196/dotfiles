@@ -15,10 +15,11 @@ unset TMUX TMUX_PANE
 PREFIX="cc_"
 SEP=$'\x01'
 # Where conversations are started, and therefore which transcript directory
-# holds them. Set COCKPIT_DIR to point the cockpit at a different project on a
+# holds them. setup.sh records this machine's choice; COCKPIT_DIR overrides it.
 # different machine; Claude Code names its transcript folder after the path with
 # every slash turned into a dash.
-CWD="${COCKPIT_DIR:-$HOME/Dev/project}"
+source "$HOME/.tmux/scripts/lib/cc-dir.sh"
+CWD=$(_cc_dir)
 IDX="$HOME/.claude/session-index"
 REG="$HOME/.claude/cockpit/threads"
 # Topics are declared, not derived: one can exist with nothing in it yet, the
