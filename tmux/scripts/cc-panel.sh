@@ -450,16 +450,88 @@ dirty_footer() { PREV[$LINES]=$'\0'; PREV[$(( LINES - 1 ))]=$'\0' }
 # Reads a line itself rather than with `read -r`, because that offered no way
 # out: enter on an empty line was the only exit, and a two-step prompt like `t`
 # went on to create something anyway.
+# Completion candidates for the next ask, if it should have any. A global
+# because ask's positional arguments already mean something and a third one
+# reading as "current" would be easy to get wrong at the call site.
+typeset -a ASK_CAND
+ASK_CAND=()
+
+_ask_matches() {   # _ask_matches <prefix> -> MATCHES
+  MATCHES=()
+  local c p=${1:l}
+  for c in $ASK_CAND; do
+    [[ -n $c && ${c:l} == ${p}* ]] && MATCHES+=("$c")
+  done
+}
+
+_ask_lcp() {   # longest shared prefix of MATCHES -> LCP
+  LCP=${MATCHES[1]:-}
+  local m i
+  for m in $MATCHES; do
+    i=0
+    while (( i < ${#LCP} && i < ${#m} )) && [[ ${LCP[i+1]:l} == ${m[i+1]:l} ]]; do
+      (( i++ ))
+    done
+    LCP=${LCP[1,i]}
+  done
+}
+
+# Every topic in the current view, deduped. Read off the rows rather than asked
+# of the host: it is already in memory, and a keystroke should not wait on a
+# subprocess to tell it what it just drew.
+set_topic_cand() {
+  local -A seen; local i t
+  ASK_CAND=()
+  for (( i=1; i<=NROWS; i++ )); do
+    t=$r_topic[i]
+    [[ -z $t || -n ${seen[$t]:-} ]] && continue
+    seen[$t]=1; ASK_CAND+=("$t")
+  done
+}
+
 ask() {  # ask <label> [current] -> REPLY; nonzero means backed out
   local label=$1 cur=${2:-} ans="" k seq line
+  # stem is what you actually typed; tab cycles the matches for that, not for
+  # whatever the last completion left in the buffer.
+  local stem="" ghost hint; local -i tabi=0
+  local -a MATCHES; local LCP
+  local -a CAND; CAND=("${ASK_CAND[@]}"); ASK_CAND=()
   (( ${#label} > COLUMNS - 14 )) && label="${label[1,COLUMNS-15]}…"
   while :; do
     line="${C_TX}  ${label}"
     [[ -n $cur ]] && line+="${C_FAINT} (now: ${cur})${C_TX}"
-    print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_FAINT}  esc backs out${RS}"
-    print -n $'\e['"$LINES"';1H'$'\e[K'"${line}: ${ans}${RS}"$'\e[?25h'
+    # The rest of the best match, shown faint ahead of the cursor, so tab is a
+    # visible offer rather than something you have to know is there.
+    ghost=""
+    if (( ${#CAND} )) && [[ -n $ans ]]; then
+      ASK_CAND=("${CAND[@]}"); _ask_matches "$ans"; ASK_CAND=()
+      (( ${#MATCHES} )) && [[ ${#MATCHES[1]} -gt ${#ans} ]] && ghost=${MATCHES[1]:${#ans}}
+    fi
+    hint="  esc backs out"
+    (( ${#CAND} )) && hint+="${C_FAINT}  ·  tab completes"
+    print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_FAINT}${hint}${RS}"
+    print -n $'\e['"$LINES"';1H'$'\e[K'"${line}: ${ans}${C_FAINT}${ghost}${RS}"
+    [[ -n $ghost ]] && print -n $'\e['"${#ghost}"'D'
+    print -n $'\e[?25h'
     read -s -k1 k || { ans=""; break }
     case $k in
+      $'\t')
+        (( ${#CAND} )) || continue
+        ASK_CAND=("${CAND[@]}"); _ask_matches "$stem"; ASK_CAND=()
+        (( ${#MATCHES} )) || continue
+        if (( ${#MATCHES} == 1 )); then
+          ans=${MATCHES[1]}
+        else
+          _ask_lcp
+          # Grow to the shared prefix first; only once that stops making
+          # progress does tab start walking the candidates one by one.
+          if (( ${#LCP} > ${#ans} )); then
+            ans=$LCP
+          else
+            (( tabi = tabi % ${#MATCHES} + 1 )); ans=${MATCHES[tabi]}
+          fi
+        fi
+        continue ;;
       $'\n'|$'\r') print -n $'\e[?25l'; dirty_footer; REPLY=$ans; return 0 ;;
       $'\e')
         # An arrow key arrives as esc [ A, so a lone esc is the one that means
@@ -470,9 +542,9 @@ ask() {  # ask <label> [current] -> REPLY; nonzero means backed out
         fi
         break ;;
       $'\x07') break ;;
-      $'\x7f'|$'\b') ans="${ans[1,-2]}" ;;
-      $'\x15') ans="" ;;
-      [[:print:]]) ans+=$k ;;
+      $'\x7f'|$'\b') ans="${ans[1,-2]}"; stem=$ans; tabi=0 ;;
+      $'\x15') ans=""; stem=""; tabi=0 ;;
+      [[:print:]]) ans+=$k; stem=$ans; tabi=0 ;;
     esac
   done
   print -n $'\e[?25l'
@@ -489,6 +561,42 @@ confirm() {
   read -s -k1 k
   dirty_footer
   [[ $k == y || $k == Y ]]
+}
+
+# Move by section rather than by row. j and k are fine for a handful of
+# conversations and useless once there are screens of them, and the sections are
+# already the thing the eye navigates by - whatever the current order groups on,
+# not just topics.
+section_jump() {   # section_jump <-1|1>
+  (( NROWS )) || return
+  local dir=$1 i s0
+  section_of $CUR; s0=$SECT
+  if (( dir > 0 )); then
+    for (( i=CUR+1; i<=NROWS; i++ )); do
+      section_of $i
+      [[ $SECT == $s0 ]] || { CUR=$i; break }
+    done
+  else
+    for (( i=CUR-1; i>=1; i-- )); do
+      section_of $i
+      [[ $SECT == $s0 ]] || break
+    done
+    if (( i >= 1 )); then
+      # Sitting on a section's first row already: skip past the whole section
+      # above rather than landing on its last row, which is what { does in vim.
+      if (( i == CUR - 1 )); then
+        s0=$SECT
+        for (( ; i>=1; i-- )); do
+          section_of $i
+          [[ $SECT == $s0 ]] || break
+        done
+      fi
+      CUR=$(( i + 1 ))
+    else
+      CUR=1
+    fi
+  fi
+  SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME
 }
 
 # actions -------------------------------------------------------------------
@@ -649,6 +757,9 @@ usage_view() {
 }
 
 new_topic() {
+  # Completing here too, so a topic that already exists gets reused instead of
+  # gaining a near-duplicate that differs by a capital letter.
+  set_topic_cand
   ask "New topic" || { MSG=""; return }
   local t=$REPLY
   [[ -z $t ]] && return
@@ -781,6 +892,8 @@ while true; do
        SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
     k) (( NROWS )) && { (( CUR > 1 )) && (( CUR-- )) || CUR=$NROWS }
        SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
+    '}'|']') section_jump 1 ;;
+    '{'|'[') section_jump -1 ;;
     g) CUR=1; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
     G) CUR=$NROWS; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
     $'\n'|$'\r') show_row 1 ;;
@@ -800,7 +913,7 @@ while true; do
     i) pick_import ;;
     r) (( NROWS )) && is_thread && { if ask "Label" "$r_label[$CUR]" && [[ -n $REPLY ]]; then
          "$HOST" label "$r_id[$CUR]" "$REPLY"; refresh_now; load; else MSG=""; fi } ;;
-    T) (( NROWS )) && is_thread && { if ask "Topic" "$r_topic[$CUR]" && [[ -n $REPLY ]]; then
+    T) (( NROWS )) && is_thread && { set_topic_cand; if ask "Topic" "$r_topic[$CUR]" && [[ -n $REPLY ]]; then
          "$HOST" topic "$r_id[$CUR]" "$REPLY"; refresh_now; load; else MSG=""; fi } ;;
     x) (( NROWS )) && is_thread && {
          if [[ $r_cold[$CUR] == 1 ]]; then note "already parked"
