@@ -110,12 +110,12 @@ refresh_now() {
 
 load() {
   r_id=(); r_topic=(); r_label=(); r_recap=(); r_state=(); r_cold=(); r_upd=()
-  r_new=(); r_prs=(); r_wd=()
-  local id topic label recap state cold upd new prs wd
-  while IFS=$SEP read -r id topic label recap state cold upd new prs wd; do
+  r_new=(); r_prs=()
+  local id topic label recap state cold upd new prs
+  while IFS=$SEP read -r id topic label recap state cold upd new prs; do
     r_id+=("$id"); r_topic+=("$topic"); r_label+=("$label"); r_recap+=("$recap")
     r_state+=("$state"); r_cold+=("$cold"); r_upd+=("$upd"); r_new+=("$new")
-    r_prs+=("$prs"); r_wd+=("$wd")
+    r_prs+=("$prs")
   done < <(jq -r --arg s "$SEP" --arg o "$ORDER" '
       def rank: {"answer":1,"running":2,"pickup":3,"waiting":4,"done":5,"dead":6,"empty":7}[.state] // 3;
       def fin:  (if (.state=="done" or .state=="dead") and .cold then 1 else 0 end);
@@ -126,8 +126,7 @@ load() {
       | .[] | [.id, .topic, .label, .recap, .state,
                (if .cold then "1" else "0" end), (.updated_at|tostring),
                (if .unread then "1" else "0" end),
-               ([(.prs // [])[] | "\(.mark) \(.label)"] | join(",")),
-               (.workdir // "")] | join($s)
+               ([(.prs // [])[] | "\(.mark) \(.label)"] | join(","))] | join($s)
     ' "$CACHE" 2>/dev/null)
   NROWS=${#r_id}
   resolve_sel
@@ -757,46 +756,6 @@ usage_view() {
   note "usage report — q closes it"
 }
 
-# A third pane holding the code the conversation is about. Opened zoomed,
-# because an editor sharing a 186-column window with two other panes is not one
-# you would actually write in; `prefix z` drops back to all three side by side.
-editor_open() {
-  (( NROWS )) || return
-  is_thread || { no_thread; return }
-  local dir=${r_wd[$CUR]:-}
-  [[ -d $dir ]] || { note "no code directory known - E sets one"; return }
-
-  local ep=$(tmux show -v @edit_pane 2>/dev/null)
-  if [[ -n $ep ]] && tmux list-panes -F '#{pane_id}' 2>/dev/null | grep -qx "$ep"; then
-    # Reused, never respawned: an editor holding unsaved buffers must not be
-    # killed just because you moved the cursor.
-    tmux send-keys -t "$ep" Escape
-    tmux send-keys -t "$ep" ":cd ${dir}" Enter
-    # Move the tree as well, or the editor lands in the right directory while
-    # still showing the previous project.
-    tmux send-keys -t "$ep" ":Neotree dir=${dir} reveal" Enter
-  else
-    # Not bare `nvim` (that is the dashboard) and not `nvim .` (that opens the
-    # tree AND a floating picker on top of it) - just the tree.
-    ep=$(tmux split-window -h -P -F '#{pane_id}' -t "$(stage_pane)" -c "$dir" \
-           nvim -c "Neotree dir=${dir}")
-    tmux set @edit_pane "$ep"
-  fi
-  [[ $(tmux display -p '#{window_zoomed_flag}') == 1 ]] && tmux resize-pane -Z
-  tmux select-pane -t "$ep"
-  tmux resize-pane -Z -t "$ep"
-  note "${dir:t} - prefix z shows all three"
-}
-
-editor_dir() {
-  (( NROWS )) || return
-  is_thread || { no_thread; return }
-  if ask "Code directory" "${r_wd[$CUR]:-}" && [[ -n $REPLY ]]; then
-    "$HOST" workdir "$r_id[$CUR]" "${~REPLY}"
-    refresh_now; load; note "code directory set"
-  else MSG=""; fi
-}
-
 new_topic() {
   # Completing here too, so a topic that already exists gets reused instead of
   # gaining a near-duplicate that differs by a capital letter.
@@ -955,8 +914,6 @@ while true; do
     $'\x0c') PREV=(); print -n $'\e[2J'; draw ;;
     /) filter_mode ;;
     a) reply_to ;;
-    e) editor_open ;;
-    E) editor_dir ;;
     u) usage_view ;;
     t) new_topic ;;
     n) new_thread ;;
