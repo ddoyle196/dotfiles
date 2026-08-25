@@ -7,6 +7,9 @@ idx="$HOME/.claude/session-index"
 out="$idx/$sid.json"
 lock="$idx/$sid.lock"
 
+# The index directory is this script's to create: nothing else makes it, and
+# without it the lock below fails and every recap exits silently.
+mkdir -p "$idx" 2>/dev/null
 mkdir "$lock" 2>/dev/null || exit 0
 trap 'rmdir "$lock" 2>/dev/null' EXIT
 [ -r "$transcript" ] || exit 0
