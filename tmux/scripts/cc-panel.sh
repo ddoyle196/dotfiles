@@ -120,7 +120,7 @@ load() {
       def rank: {"answer":1,"running":2,"pickup":3,"waiting":4,"done":5,"dead":6,"empty":7}[.state] // 3;
       def fin:  (if (.state=="done" or .state=="dead") and .cold then 1 else 0 end);
       [ .[] ]
-      | (if   $o=="topic" then sort_by([fin, .topic, rank, -(.updated_at)])
+      | (if   $o=="topic" then sort_by([fin, (.topic == ""), .topic, rank, -(.updated_at)])
          elif $o=="age"   then sort_by([fin, -(.updated_at)])
          else                  sort_by([fin, rank, -(.updated_at)]) end)
       | .[] | [.id, .topic, .label, .recap, .state,
@@ -216,7 +216,7 @@ section_of() {   # section_of <row> -> SECT
   case $ORDER in
     topic)
       topic_icon $r_topic[i]
-      SECT=${TICON:+"${TICON} "}"${r_topic[i]}" ;;
+      SECT=${TICON:+"${TICON} "}"${r_topic[i]:-unfiled}" ;;
     age)
       if (( r_upd[i] == 0 )); then SECT="just made"
       else
@@ -344,7 +344,7 @@ build() {
     add text "  › ${fincount} finished  (z)" "" "$C_FAINT" 0
   fi
   if (( NROWS == 0 )); then
-    add text "  nothing yet — t starts a topic" "" "$C_FAINT" 0
+    add text "  nothing yet — n starts a conversation" "" "$C_FAINT" 0
     add text "  i brings back a past conversation" "" "$C_FAINT" 0
   fi
 }
@@ -664,9 +664,12 @@ new_topic() {
 }
 
 new_thread() {
-  (( NROWS == 0 )) && { new_topic; return }
-  local t=$r_topic[$CUR]
-  ask "New conversation in ${t}" || { MSG=""; return }
+  # No topic required up front. Sitting on one adopts it, because that is
+  # plainly what you meant; anywhere else the conversation starts unfiled and
+  # T files it once you can see what it became.
+  local t=""
+  (( NROWS )) && is_thread && t=$r_topic[$CUR]
+  ask "New conversation${t:+ in $t}" || { MSG=""; return }
   local l=${REPLY:-new conversation}
   note "starting…"; SEL_ID=$("$HOST" new "$t" "$l")
   enter_new

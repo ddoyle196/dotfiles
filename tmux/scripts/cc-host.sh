@@ -100,13 +100,15 @@ list)
   ;;
 
 new)
-  topic="${2:?topic required}"; label="${3:-new conversation}"
+  # Unfiled is a legitimate state: a conversation earns its topic once it exists
+  # and you can see what it turned out to be. `topic` files it later.
+  topic="${2:-}"; label="${3:-new conversation}"
   id=$(_newid)
   _write "$id" topic   "$(jq -Rn --arg v "$topic" '$v')"
   _write "$id" label   "$(jq -Rn --arg v "$label" '$v')"
   _write "$id" created "$(date +%s)"
   _write "$id" cwd     "$(jq -Rn --arg v "$CWD" '$v')"
-  _topic_declare "$topic"
+  [[ -n "$topic" ]] && _topic_declare "$topic"
   tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" claude $CLAUDE_ARGS
   _quiet "$id"
   print "$id"
