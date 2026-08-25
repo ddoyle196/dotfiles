@@ -27,7 +27,7 @@ KEYS=(
 # `$T_RED:answer` would apply zsh's `:a` modifier and eat the label.
 STATES=(
   "●:${T_RED}:answer"  "◐:${T_YEL}:running"  "○:${T_BLU}:pick up"
-  "◌:${T_MUT}:waiting" "✓:${T_GRN}:done"     "·:${T_FAINT}:parked"
+  "◌:${T_MUT}:waiting" "✓:${T_GRN}:done"     "▪:${T_FAINT}:parked"
   "•:#[fg=#83b3e3]:unread"
 )
 
