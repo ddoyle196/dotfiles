@@ -15,7 +15,8 @@ T_GRN="#[fg=#879a39]"; T_DEF="#[fg=default]"
 # key, what it does. Ordered by how often you reach for it.
 KEYS=(
   "enter:open"      "a:reply"         "tab:wake, stay"  "/:jump"
-  "f:follow"        "o:order"         "z:fold"          "< >:width"
+  "{ }:section"     "f:follow"        "o:order"         "z:fold"
+  "< >:width"
   "n:new"           "t:topic"         "i:import"        "r:rename"
   "T:move topic"    "x:park (stop)"   "d:remove"        "D:remove topic"
   "u:usage"         "R:refresh"       "ctrl-h:list"     "ctrl-r:reload"
