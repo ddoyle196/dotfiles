@@ -21,6 +21,25 @@ def _load(path, default):
 PR_REFS = _load(os.path.join(COCKPIT, "prs.json"), {})
 PR_STATE = _load(os.path.join(COCKPIT, "pr-status.json"), {})
 
+def work_dir(tid, rec):
+    """Where this conversation's code lives.
+
+    An explicit override wins. Otherwise the repo it spent the most time in,
+    with the tail of the conversation counted double - the directory it STARTED
+    in is the same for every conversation, and the last one it happened to touch
+    is wherever the final command ran.
+    """
+    if rec.get("workdir"):
+        return rec["workdir"]
+    entry = PR_REFS.get(tid) or {}
+    counts = dict(entry.get("cwd_counts") or {})
+    if not counts:
+        return rec.get("cwd", "")
+    for r in (entry.get("cwd_tail") or []):
+        counts[r] = counts.get(r, 0) + 1
+    return max(counts, key=lambda k: (counts[k], k))
+
+
 def pr_badges(tid):
     """Only PRs the conversation worked on, best-attributed first."""
     entry = PR_REFS.get(tid) or {}
@@ -183,6 +202,7 @@ for name in sorted(os.listdir(REG)):
         # Claude is mid-answer, which would leave every busy row permanently new.
         "unread": rec.get("updated_at", 0) > rec.get("last_seen", 0),
         "prs": pr_badges(tid),
+        "workdir": work_dir(tid, rec),
         "state": state, "session_id": sid,
         # A conversation has no updated_at until its first recap is written, and
         # 0 sorts as the oldest thing there is — so a brand-new one fell to the
