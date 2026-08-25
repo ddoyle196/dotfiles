@@ -5,7 +5,8 @@
 emulate -L zsh
 S=cockpit
 DIR="$HOME/.tmux/scripts"
-CWD="${COCKPIT_DIR:-$HOME/Dev/project}"
+source "$HOME/.tmux/scripts/lib/cc-dir.sh"
+CWD=$(_cc_dir)
 WIDTH=54
 
 # The legend lives in the status line: two rows of content and no border row,

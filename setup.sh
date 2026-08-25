@@ -106,7 +106,7 @@ install_nvim_plugins() {
 # The Claude cockpit: prefix+a opens a list of your conversations beside the one
 # you picked. Linked file by file, because ~/.tmux/scripts and ~/.claude/hooks
 # hold other things too. Set COCKPIT_DIR to the directory the conversations
-# should run in; it defaults to ~/Dev/project.
+# should run in; setup records it per machine so no shell rc needs editing.
 install_cockpit() {
   local f
   log "Linking Claude cockpit..."
@@ -126,12 +126,36 @@ install_cockpit() {
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
     backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
 
+  record_cockpit_dir
   register_recap_hook
   register_nested_md_hook
 
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
   done
+}
+
+# Which directory new conversations start in. Recorded in a file the scripts
+# read, not exported into a shell rc: the tmux server carries the environment of
+# whatever launched it, which is rarely the shell you are typing in. Set once,
+# and never guessed - an unset COCKPIT_DIR on a fresh machine means $HOME, which
+# is harmless, rather than a path from somebody else's laptop.
+record_cockpit_dir() {
+  local f="$HOME/.claude/cockpit/dir" dir="${COCKPIT_DIR:-}"
+  mkdir -p "$HOME/.claude/cockpit" "$HOME/.claude/session-index"
+  if [[ -n "$dir" ]]; then
+    :
+  elif [[ -s "$f" ]]; then
+    log "Cockpit directory already set: $(cat "$f")"
+    return
+  elif [[ -t 0 ]]; then
+    read -r "dir?Directory for new cockpit conversations [$HOME]: "
+  fi
+  dir="${dir:-$HOME}"
+  eval dir="$dir"                       # let a typed ~ or $HOME expand
+  [[ -d "$dir" ]] || warn "cockpit directory does not exist yet: $dir"
+  printf '%s\n' "$dir" > "$f"
+  log "Cockpit directory: $dir"
 }
 
 # The recap hook is what keeps the list's one-line summaries current. Linking the
@@ -220,6 +244,12 @@ main() {
     backup_and_link "$DOTFILES_DIR/tmux.conf" "$HOME/.tmux.conf"
     install_cockpit
     install_tpm
+    # A running server is still on the old config; without this the new
+    # bindings only appear after a restart, which reads as setup not working.
+    if tmux info &>/dev/null; then
+      tmux source-file "$HOME/.tmux.conf" 2>/dev/null &&
+        log "Reloaded tmux config" || warn "Could not reload tmux config"
+    fi
   fi
 
   log "Setup complete!"
