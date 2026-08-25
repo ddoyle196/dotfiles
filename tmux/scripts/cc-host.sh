@@ -95,7 +95,7 @@ list)
   } | python3 "$HOME/.tmux/scripts/cc-list.py" "$REG" "$IDX" "$TOPICS"
   # Harvesting is a cheap incremental read; asking GitHub is not, so that runs
   # detached and the list uses whatever answer was last written.
-  python3 "$HOME/.tmux/scripts/cc-harvest.py" harvest "$REG" "$PROJ" 2>/dev/null
+  python3 "$HOME/.tmux/scripts/cc-harvest.py" harvest "$REG" "$PROJ" "$CWD" 2>/dev/null
   ( python3 "$HOME/.tmux/scripts/cc-harvest.py" status >/dev/null 2>&1 & ) 
   ;;
 
@@ -276,6 +276,8 @@ usage)  # tokens and active time per conversation, grouped by topic; `usage csv`
   python3 "$HOME/.tmux/scripts/lib/cc-usage-report.py" \
           "$REG" "$HOME/.claude/cockpit/usage.json" "${2:-}"
   ;;
+
+workdir) _write "${2:?}" workdir "$(jq -Rn --arg v "${3:?}" '$v')" ;;
 
 seen)  _write "${2:?}" last_seen "$(date +%s)" ;;   # you have looked at it since it last spoke
 

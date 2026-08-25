@@ -61,6 +61,8 @@ def save(path, data):
     os.replace(tmp, path)
 
 
+BASE_DIRS = ()      # filled per run from the cockpit directory
+RECENT_CWDS = 60    # how much of the tail counts double when ranking repos
 IDLE_GAP = 600      # a pause longer than this is you being elsewhere, not work
 
 
@@ -102,6 +104,36 @@ def pr_number(rest):
             return t
         return None            # a non-flag, non-number argument ends the args
     return None
+
+
+def git_root(path, base):
+    """Nearest enclosing checkout, stopping at the cockpit's own directory."""
+    p = path
+    while p and p != "/" and p != base:
+        if os.path.exists(os.path.join(p, ".git")):
+            return p
+        p = os.path.dirname(p)
+    return None
+
+
+def note_cwd(entry, cwd, base):
+    """Where a conversation works, ranked later by how often it was there.
+
+    The directory it was started in says nothing - every conversation starts in
+    the same place. Where it SETTLED is the useful signal, and that has to be
+    counted rather than taken from the last line: conversations wander through
+    dozens of directories, so the final one is wherever the last command
+    happened to run.
+    """
+    root = git_root(cwd, base)
+    if not root:
+        return
+    counts = entry.setdefault("cwd_counts", {})
+    counts[root] = counts.get(root, 0) + 1
+    tail = entry.setdefault("cwd_tail", [])
+    tail.append(root)
+    if len(tail) > RECENT_CWDS:
+        del tail[:-RECENT_CWDS]
 
 
 def scan_commands(entry, d, now, default_repo):
@@ -146,7 +178,7 @@ def claim_created(entry, d, now):
                 break
 
 
-def scan_chunk(entry, u, chunk, now, label):
+def scan_chunk(entry, u, chunk, now, label, base):
     """One parse of the new bytes feeds PR attribution and usage together."""
     repos = [m.group(1) for m in PR_URL.finditer(chunk.decode("utf-8", "ignore"))]
     default_repo = entry.get("repo") or (max(set(repos), key=repos.count) if repos else "")
@@ -162,6 +194,9 @@ def scan_chunk(entry, u, chunk, now, label):
         if d.get("type") == "user":
             claim_created(entry, d, now)
             continue
+        cwd = d.get("cwd")
+        if cwd:
+            note_cwd(entry, cwd, base)
         if d.get("type") != "assistant":
             continue
         scan_commands(entry, d, now, default_repo)
@@ -224,7 +259,7 @@ def iso_delta(a, b):
         return 0
 
 
-def harvest(reg_dir, proj_dir):
+def harvest(reg_dir, proj_dir, base=""):
     refs = load(REFS, {})
     usage = load(USE, {})
     now = int(time.time())
@@ -262,7 +297,7 @@ def harvest(reg_dir, proj_dir):
             chunk = fh.read()
         entry["offsets"][sid] = size
         scan_chunk(entry, prime(usage.setdefault(tid, new_usage())), chunk, now,
-                   rec.get("label", ""))
+                   rec.get("label", ""), base)
     for u in usage.values():
         u.pop("seen_set", None)
     refs["_harvested_at"] = now
@@ -330,7 +365,7 @@ def status(repos, wanted=()):
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "harvest":
-        harvest(sys.argv[2], sys.argv[3])
+        harvest(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else "")
     elif cmd == "status":
         refs = load(REFS, {})
         wanted = sorted({k for t, e in refs.items()

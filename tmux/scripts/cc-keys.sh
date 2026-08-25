@@ -14,12 +14,12 @@ T_GRN="#[fg=#879a39]"; T_DEF="#[fg=default]"
 
 # key, what it does. Ordered by how often you reach for it.
 KEYS=(
-  "enter:open"      "a:reply"         "tab:wake"        "/:jump"
-  "{ }:section"     "f:follow"        "o:order"         "z:fold"
+  "enter:open"      "a:reply"         "e:code"         "tab:wake"        "/:jump"
+  "{}:section"     "f:follow"        "o:order"         "z:fold"
   "< >:width"
-  "n:new"           "t:topic"         "i:import"        "r:rename"
-  "T:move"          "x:park"          "d:remove"        "D:rm topic"
-  "u:usage"         "R:refresh"       "^h:list"         "^r:reload"
+  "n:new"           "t:topic"         "i:import"  "r:rename"
+  "T:move"          "x:park"          "d:remove"
+  "u:usage"         "^h:list"
   "q:leave"
 )
 # glyph, colour, label — kept apart so the width can be counted without having
