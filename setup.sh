@@ -123,9 +123,34 @@ install_cockpit() {
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
     backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
 
+  register_recap_hook
+
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
   done
+}
+
+# The recap hook is what keeps the list's one-line summaries current. Linking the
+# script is not enough - it has to be registered as a Stop hook, and that lives
+# in settings.json alongside machine-specific things we do not want to sync.
+# Added in place, and only when it is not already there.
+register_recap_hook() {
+  local settings="$HOME/.claude/settings.json"
+  local cmd='$HOME/.claude/hooks/cc-recap-trigger.sh'
+
+  command -v jq &>/dev/null || { warn "jq not found, skipping recap hook"; return; }
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+  if jq -e --arg c "$cmd" \
+       '[.hooks.Stop[]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
+    log "Recap hook already registered"
+    return
+  fi
+
+  log "Registering recap hook in settings.json"
+  jq --arg c "$cmd" \
+     '.hooks.Stop = ((.hooks.Stop // []) + [{hooks:[{type:"command", command:$c}]}])' \
+     "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
 }
 
 install_tpm() {
