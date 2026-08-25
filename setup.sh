@@ -120,13 +120,14 @@ install_cockpit() {
   done
   backup_and_link "$DOTFILES_DIR/tmux/scripts/lib/cc-usage-report.py" \
                   "$HOME/.tmux/scripts/lib/cc-usage-report.py"
-  for f in cc-recap-gen.sh cc-recap-trigger.sh; do
+  for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py; do
     backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
   done
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
     backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
 
   register_recap_hook
+  register_nested_md_hook
 
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
@@ -154,6 +155,31 @@ register_recap_hook() {
   jq --arg c "$cmd" \
      '.hooks.Stop = ((.hooks.Stop // []) + [{hooks:[{type:"command", command:$c}]}])' \
      "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
+# Loads a subdirectory's CLAUDE.md when work reaches that subdirectory, which
+# Claude Code does not do on its own. Bash is in the matcher deliberately: under
+# --dangerously-skip-permissions, which is how the cockpit runs, the agent reads
+# files with `cat` far more often than with the Read tool.
+register_nested_md_hook() {
+  local settings="$HOME/.claude/settings.json"
+  local cmd="$HOME/.claude/hooks/nested-claude-md.py"
+
+  command -v jq &>/dev/null || { warn "jq not found, skipping nested CLAUDE.md hook"; return; }
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+  if jq -e --arg c "$cmd" \
+       '[.hooks.PreToolUse[]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
+    log "Nested CLAUDE.md hook already registered"
+    return
+  fi
+
+  log "Registering nested CLAUDE.md hook in settings.json"
+  jq --arg c "$cmd" \
+     '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{
+        matcher: "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob",
+        hooks: [{type: "command", command: $c}]
+      }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
 }
 
 install_tpm() {
