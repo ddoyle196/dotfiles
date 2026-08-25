@@ -70,3 +70,38 @@ dotfiles/
 
 - **Tmux**: Press `prefix + I` to install plugins via TPM
 - **Neovim**: Plugins auto-install on first launch via lazy.nvim
+
+## Claude cockpit
+
+A list of your Claude Code conversations on the left, the one you picked on the
+right. `prefix + a` opens it; the list follows your cursor, so moving down the
+list swaps the conversation beside it.
+
+A conversation is a registry file under `~/.claude/cockpit/`, not a process. The
+tmux session is only how it happens to be running right now — when that dies the
+entry stays, and `enter` resumes it from its transcript.
+
+| | |
+|---|---|
+| `enter` | open it (resumes a parked one) |
+| `a` | reply without leaving the list |
+| `/` | fuzzy jump |
+| `t` / `n` | new topic / new conversation |
+| `x` / `d` | park (stop the process) / remove |
+| `u` | tokens and time per topic |
+| `?` | the full legend lives in the status bar |
+
+Rows show what each conversation needs from you (`answer`, `pick up`, `waiting`,
+`done`), whether it has spoken since you last looked, and any pull requests it
+has worked on.
+
+Set `COCKPIT_DIR` to the directory conversations should run in. It defaults to
+`~/Dev/project`, so on another machine export it somewhere your shell reads:
+
+```sh
+export COCKPIT_DIR="$HOME/code"
+```
+
+Needs `tmux`, `jq`, `python3` and the `claude` CLI. `gh` is optional and only
+used for pull-request badges. Nothing about the cockpit is synced except the
+code: the conversations themselves are per-machine, so it starts empty.

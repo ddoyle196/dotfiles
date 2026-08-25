@@ -1,0 +1,7 @@
+#!/bin/sh
+# The cockpit is a view over tmux-hosted conversations; this is just the door.
+# --nvim opens the same registry in the nvim cockpit instead.
+case "${1:-}" in
+  --nvim) exec nvim -c Cockpit ;;
+  *)      exec "$HOME/.tmux/scripts/cc-cockpit.sh" ;;
+esac

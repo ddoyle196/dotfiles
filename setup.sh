@@ -103,6 +103,31 @@ install_nvim_plugins() {
   nvim --headless "+Lazy! sync" +qa
 }
 
+# The Claude cockpit: prefix+a opens a list of your conversations beside the one
+# you picked. Linked file by file, because ~/.tmux/scripts and ~/.claude/hooks
+# hold other things too. Set COCKPIT_DIR to the directory the conversations
+# should run in; it defaults to ~/Dev/project.
+install_cockpit() {
+  local f
+  log "Linking Claude cockpit..."
+  mkdir -p "$HOME/.tmux/scripts/lib" "$HOME/.claude/hooks" "$HOME/.local/bin"
+  for f in cc-panel.sh cc-host.sh cc-stage.sh cc-keys.sh cc-cockpit.sh \
+           cc-run-panel.sh cc-list.py cc-harvest.py; do
+    backup_and_link "$DOTFILES_DIR/tmux/scripts/$f" "$HOME/.tmux/scripts/$f"
+  done
+  backup_and_link "$DOTFILES_DIR/tmux/scripts/lib/cc-usage-report.py" \
+                  "$HOME/.tmux/scripts/lib/cc-usage-report.py"
+  for f in cc-recap-gen.sh cc-recap-trigger.sh; do
+    backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
+  done
+  [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
+    backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
+
+  for f in jq python3 tmux claude; do
+    command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
+  done
+}
+
 install_tpm() {
   local tpm_dir="$HOME/.tmux/plugins/tpm"
   if [[ ! -d "$tpm_dir" ]]; then
@@ -139,6 +164,7 @@ main() {
     warn "Skipping tmux on native Windows. Use WSL for tmux support."
   else
     backup_and_link "$DOTFILES_DIR/tmux.conf" "$HOME/.tmux.conf"
+    install_cockpit
     install_tpm
   fi
 
