@@ -41,7 +41,7 @@ C_MAG=$'\e[38;2;138;97;213m'
 typeset -A ICON FG SNAME
 # One family, one optical weight: mixing a solid diamond with a hairline
 # triangle made the column read as noise rather than a scale.
-ICON=( answer "●" running "◐" pickup "○" waiting "◌" done "✓" dead "·" empty "" )
+ICON=( answer "●" running "◐" pickup "○" waiting "◌" done "✓" dead "▪" empty "" )
 FG=(   answer $C_RED running $C_YEL pickup $C_BLU waiting $C_MUT done $C_GRN dead $C_FAINT empty $C_FAINT )
 SNAME=( answer "answer this" running "running" pickup "pick this up" \
         waiting "waiting on someone" done "finished" dead "process gone" \
@@ -304,7 +304,7 @@ build() {
     if [[ $r_new[i] == 1 && $st != empty ]]; then
       mark="•"; markc=$'\e[38;2;131;179;227m' 
     elif [[ $r_cold[i] == 1 && $st != dead ]]; then
-      mark="·"; markc=$C_FAINT
+      mark="▪"; markc=$C_FAINT
     fi
     local recap_fg=$C_MUT
     [[ $st == done || $st == dead ]] && recap_fg=$C_FAINT
