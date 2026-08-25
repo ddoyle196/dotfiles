@@ -308,6 +308,11 @@ build() {
     fi
     local recap_fg=$C_MUT
     [[ $st == done || $st == dead ]] && recap_fg=$C_FAINT
+    # Parked means nothing is running, so the row should read that way. A single
+    # faint dot was the only difference from a live conversation, and an unread
+    # row replaced even that.
+    local labc=$dim
+    [[ $r_cold[i] == 1 ]] && { labc=$C_FAINT; recap_fg=$C_FAINT }
     ROWLINE[$i]=$(( ${#L_kind} + 1 ))
     age_of $r_upd[i]
     # Under any order but topic, the row is the only place the topic can show.
@@ -321,7 +326,7 @@ build() {
       add head "     ${C_FAINT}nothing here yet — n starts a conversation" "" "$C_FAINT" "$i" "" 47
       continue
     fi
-    add head "  ${markc}${mark}${dim}${ICON[$st]:-○} ${lab}" "$tag" "$dim" "$i" "$AGE" \
+    add head "  ${markc}${mark}${dim}${ICON[$st]:-○}${labc} ${lab}" "$tag" "$dim" "$i" "$AGE" \
         $(( 5 + ${#lab} ))
     wrap2 "$r_recap[i]" $inner
     for l in $WRAPPED; do add recap "       $l" "" "$recap_fg" "$i"; done
