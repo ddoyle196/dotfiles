@@ -772,8 +772,14 @@ editor_open() {
     # killed just because you moved the cursor.
     tmux send-keys -t "$ep" Escape
     tmux send-keys -t "$ep" ":cd ${dir}" Enter
+    # Move the tree as well, or the editor lands in the right directory while
+    # still showing the previous project.
+    tmux send-keys -t "$ep" ":Neotree dir=${dir} reveal" Enter
   else
-    ep=$(tmux split-window -h -P -F '#{pane_id}' -t "$(stage_pane)" -c "$dir" nvim)
+    # Not bare `nvim` (that is the dashboard) and not `nvim .` (that opens the
+    # tree AND a floating picker on top of it) - just the tree.
+    ep=$(tmux split-window -h -P -F '#{pane_id}' -t "$(stage_pane)" -c "$dir" \
+           nvim -c "Neotree dir=${dir}")
     tmux set @edit_pane "$ep"
   fi
   [[ $(tmux display -p '#{window_zoomed_flag}') == 1 ]] && tmux resize-pane -Z
