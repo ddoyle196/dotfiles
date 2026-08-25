@@ -14,12 +14,12 @@ T_GRN="#[fg=#879a39]"; T_DEF="#[fg=default]"
 
 # key, what it does. Ordered by how often you reach for it.
 KEYS=(
-  "enter:open"      "a:reply"         "tab:wake, stay"  "/:jump"
+  "enter:open"      "a:reply"         "tab:wake"        "/:jump"
   "{ }:section"     "f:follow"        "o:order"         "z:fold"
   "< >:width"
   "n:new"           "t:topic"         "i:import"        "r:rename"
-  "T:move topic"    "x:park (stop)"   "d:remove"        "D:remove topic"
-  "u:usage"         "R:refresh"       "ctrl-h:list"     "ctrl-r:reload"
+  "T:move"          "x:park"          "d:remove"        "D:rm topic"
+  "u:usage"         "R:refresh"       "^h:list"         "^r:reload"
   "q:leave"
 )
 # glyph, colour, label — kept apart so the width can be counted without having
@@ -29,6 +29,15 @@ STATES=(
   "●:${T_RED}:answer"  "◐:${T_YEL}:running"  "○:${T_BLU}:pick up"
   "◌:${T_MUT}:waiting" "✓:${T_GRN}:done"     "·:${T_FAINT}:parked"
   "•:#[fg=#83b3e3]:unread"
+)
+
+# Pull request badges, the same glyphs and colours the rows draw them with.
+# `unknown` is deliberately absent: it renders as the same dot as a parked
+# conversation and explaining it would cost more than it is worth.
+PRS=(
+  "✗:${T_RED}:fail"       "◷:${T_YEL}:pending"  "✓:${T_GRN}:approved"
+  "⤳:#[fg=#8a61d5]:merged" "○:${T_BLU}:open"     "⊘:${T_FAINT}:draft"
+  "×:${T_FAINT}:closed"
 )
 
 W=80
@@ -61,6 +70,15 @@ build_lines() {   # -> LINES_OUT
   # wrap can never leave it dangling at the end of a line.
   local sep="${T_FAINT}│   " sepw=4
   for item in "${STATES[@]}"; do
+    g=${item%%:*}; c=${${item#*:}%:*}; d=${item##*:}
+    iw+=( $(( sepw + 2 + ${#d} )) )
+    ir+=( "${sep}${c}${g}${T_MUT} ${d}" )
+    sep=""; sepw=0
+  done
+  # Its own divider, so the pull-request glyphs read as a set rather than as
+  # more conversation states.
+  sep="${T_FAINT}│   "; sepw=4
+  for item in "${PRS[@]}"; do
     g=${item%%:*}; c=${${item#*:}%:*}; d=${item##*:}
     iw+=( $(( sepw + 2 + ${#d} )) )
     ir+=( "${sep}${c}${g}${T_MUT} ${d}" )
