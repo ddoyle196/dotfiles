@@ -118,8 +118,11 @@ install_cockpit() {
            save-labels.sh restore-labels.sh; do
     backup_and_link "$DOTFILES_DIR/tmux/scripts/$f" "$HOME/.tmux/scripts/$f"
   done
-  backup_and_link "$DOTFILES_DIR/tmux/scripts/lib/cc-usage-report.py" \
-                  "$HOME/.tmux/scripts/lib/cc-usage-report.py"
+  # Everything in lib/, not a named list: cc-dir.sh was added later and a fresh
+  # install had no way to resolve its cockpit directory without it.
+  for f in "$DOTFILES_DIR"/tmux/scripts/lib/*; do
+    backup_and_link "$f" "$HOME/.tmux/scripts/lib/$(basename "$f")"
+  done
   for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py; do
     backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
   done
