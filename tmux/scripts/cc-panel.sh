@@ -503,8 +503,11 @@ ask() {  # ask <label> [current] -> REPLY; nonzero means backed out
   local -a CAND; CAND=("${ASK_CAND[@]}"); ASK_CAND=()
   (( ${#label} > COLUMNS - 14 )) && label="${label[1,COLUMNS-15]}…"
   while :; do
+    local -i vis=$(( 2 + ${#label} + 2 ))
     line="${C_TX}  ${label}"
-    [[ -n $cur ]] && line+="${C_FAINT} (now: ${cur})${C_TX}"
+    if [[ -n $cur ]] && (( vis + 8 + ${#cur} < COLUMNS )); then
+      line+="${C_FAINT} (now: ${cur})${C_TX}"; vis+=$(( 8 + ${#cur} ))
+    fi
     # The rest of the best match, shown faint ahead of the cursor, so tab is a
     # visible offer rather than something you have to know is there.
     ghost=""
@@ -515,7 +518,12 @@ ask() {  # ask <label> [current] -> REPLY; nonzero means backed out
     hint="  esc backs out"
     (( ${#CAND} )) && hint+="${C_FAINT}  ·  tab completes"
     print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_FAINT}${hint}${RS}"
-    print -n $'\e['"$LINES"';1H'$'\e[K'"${line}: ${ans}${C_FAINT}${ghost}${RS}"
+    # Same pending-wrap trap as the filter footer: keep a cell in reserve.
+    local shown=$ans
+    (( vis + ${#shown} + ${#ghost} >= COLUMNS )) && ghost=""
+    local -i keep=$(( COLUMNS - vis - 2 ))
+    (( keep > 0 && ${#shown} > keep )) && shown="…${shown[-keep,-1]}"
+    print -n $'\e['"$LINES"';1H'$'\e[K'"${line}: ${shown}${C_FAINT}${ghost}${RS}"
     [[ -n $ghost ]] && print -n $'\e['"${#ghost}"'D'
     print -n $'\e[?25h'
     read -s -k1 k || { ans=""; break }
@@ -812,8 +820,15 @@ filter_mode() {
   FILTER=""
   while :; do
     snap_match; build; draw
-    print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TOPIC}  /${C_TX}${FILTER}"\
-"${C_FAINT}   enter opens  ·  ctrl-n/p next  ·  esc cancels${RS}"$'\e[?25h'
+    local hint="  enter opens  ·  ctrl-n/p next  ·  esc cancels"
+    (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  esc cancels"
+    (( ${#hint} >= COLUMNS )) && hint="  esc cancels"
+    # A footer that reaches the final cell leaves the terminal in pending wrap,
+    # so the next keystroke scrolls the whole list up out from under the prompt.
+    local q=$FILTER; local -i keep=$(( COLUMNS - 5 ))
+    (( keep > 0 && ${#q} > keep )) && q="…${q[-keep,-1]}"
+    print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_FAINT}${hint}${RS}"
+    print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TOPIC}  /${C_TX}${q}${RS}"$'\e[?25h'
     dirty_footer
     read -s -k1 k || break
     print -n $'\e[?25l'
