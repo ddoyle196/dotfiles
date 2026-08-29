@@ -190,7 +190,10 @@ register_recap_hook() {
 # files with `cat` far more often than with the Read tool.
 register_nested_md_hook() {
   local settings="$HOME/.claude/settings.json"
-  local cmd="$HOME/.claude/hooks/nested-claude-md.py"
+  # Literal $HOME, matching register_recap_hook: settings.json expands it, and
+  # writing the expanded path instead makes the check below miss an existing
+  # registration and append a duplicate on every run.
+  local cmd='$HOME/.claude/hooks/nested-claude-md.py'
 
   command -v jq &>/dev/null || { warn "jq not found, skipping nested CLAUDE.md hook"; return; }
   [[ -f "$settings" ]] || echo '{}' > "$settings"
