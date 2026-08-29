@@ -33,7 +33,7 @@ _cwd_for()  { local c; c=$(jq -r '.cwd // ""' "$REG/$1.json" 2>/dev/null); print
 _proj_for() { print -r -- "$HOME/.claude/projects/${1//\//-}" }
 # Cockpit conversations run unattended in a background session, where a
 # permission prompt is a conversation stuck waiting on a pane nobody is looking
-# at. Daniel asked for these to never stop and ask.
+# at, so these are deliberately run without stopping to ask.
 CLAUDE_ARGS=( --dangerously-skip-permissions )
 mkdir -p "$REG"
 [[ -f "$TOPICS" ]] || print '[]' > "$TOPICS"
