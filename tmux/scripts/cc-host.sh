@@ -78,7 +78,19 @@ _write() {  # _write <id> <key> <json-value>
   jq --arg k "$2" --argjson v "$3" '.[$k]=$v' "$f" > "$tmp" && mv "$tmp" "$f"
 }
 
-_alive() { tmux has-session -t "=$1" 2>/dev/null }
+# A session by that name is not proof the conversation is up. tmux-resurrect
+# restores the name after a reboot but captures the wrong command to restore,
+# so the pane comes back as a bare login shell — attaching lands you at a
+# prompt instead of in Claude. A hosted session runs claude AS its pane root,
+# with no shell in between, so a shell there means the process is gone.
+_alive() {
+  local root cmd
+  root=$(tmux list-panes -t "=$1" -F '#{pane_pid}' 2>/dev/null | head -1)
+  [[ -n $root ]] || return 1
+  cmd=$(ps -o comm= -p "$root" 2>/dev/null); cmd=${cmd:t}; cmd=${cmd#-}
+  [[ $cmd == (zsh|bash|sh|fish|dash|ksh|tcsh|csh|login) ]] && return 1
+  return 0
+}
 
 case "${1:-list}" in
 
@@ -91,7 +103,7 @@ list)
     print -r -- "PS"
     ps -eo pid=,ppid=
     print -r -- "PANES"
-    tmux list-sessions -F "#{session_name} #{pane_pid}" 2>/dev/null | grep "^${PREFIX}"
+    tmux list-sessions -F "#{session_name} #{pane_pid} #{session_created}" 2>/dev/null | grep "^${PREFIX}"
   } | python3 "$HOME/.tmux/scripts/cc-list.py" "$REG" "$IDX" "$TOPICS"
   # Harvesting is a cheap incremental read; asking GitHub is not, so that runs
   # detached and the list uses whatever answer was last written.
@@ -143,14 +155,24 @@ register)  # adopt a transcript that has no process: recovery, and importing his
 
 start)  # bring a parked conversation back up, or no-op if it is already running
   id="${2:?id required}"
+  typeset -a cmd; typeset pane
   _alive "$id" && { print "$id"; exit 0 }
   [[ -f "$REG/$id.json" ]] || { print -u2 "start: no such conversation $id"; exit 1 }
   sid=$(jq -r '.claude_session // ""' "$REG/$id.json")
   cwd=$(_cwd_for "$id"); proj=$(_proj_for "$cwd")
   if [[ -n "$sid" && -f "$proj/$sid.jsonl" ]]; then
-    tmux new-session -d -s "$id" -x 200 -y 50 -c "$cwd" claude $CLAUDE_ARGS --resume "$sid"
+    cmd=( claude $CLAUDE_ARGS --resume "$sid" )
   else
-    tmux new-session -d -s "$id" -x 200 -y 50 -c "$cwd" claude $CLAUDE_ARGS
+    cmd=( claude $CLAUDE_ARGS )
+  fi
+  if tmux has-session -t "=$id" 2>/dev/null; then
+    # The husk case: the name survives but the process did not, so new-session
+    # would fail on a duplicate. Reclaim the pane rather than churn the session,
+    # which keeps whatever the cockpit has already pointed at it valid.
+    pane=$(tmux list-panes -t "=$id" -F '#{pane_id}' 2>/dev/null | head -1)
+    tmux respawn-pane -k -t "$pane" -c "$cwd" "${cmd[@]}"
+  else
+    tmux new-session -d -s "$id" -x 200 -y 50 -c "$cwd" "${cmd[@]}"
   fi
   _quiet "$id"
   print "$id"
