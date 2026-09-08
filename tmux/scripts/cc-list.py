@@ -64,6 +64,7 @@ def pr_badges(tid):
     return out
 
 
+STARTUP_GRACE = 90   # seconds a session may hold a name with no Claude yet
 blocks, cur = {"AGENTS": [], "PS": [], "PANES": []}, None
 for line in sys.stdin:
     key = line.strip()
@@ -85,11 +86,16 @@ for line in blocks["PS"]:
     if len(bits) == 2:
         parent[bits[0]] = bits[1]
 
-pane_pid = {}
+pane_pid, sess_born = {}, {}
 for line in blocks["PANES"]:
     bits = line.split()
-    if len(bits) == 2:
+    if len(bits) >= 2:
         pane_pid[bits[0]] = bits[1]
+    if len(bits) >= 3:
+        try:
+            sess_born[bits[0]] = int(bits[2])
+        except ValueError:
+            pass
 
 
 def owner(root):
@@ -124,6 +130,12 @@ for name in sorted(os.listdir(REG)):
 
     root = pane_pid.get(tid)
     cpid = owner(root) if root else None
+    # A session with no Claude under it is starting, or it is a husk: after a
+    # reboot tmux-resurrect brings the NAME back as a bare shell. A resume needs
+    # a few seconds, so give it a window; past that the conversation is not
+    # running, and saying so is what lets the panel offer to start it.
+    if root and not cpid and time.time() - sess_born.get(tid, 0) > STARTUP_GRACE:
+        root = None
 
     # A running conversation is the authority on its own id; --resume forks one.
     if cpid:
@@ -150,7 +162,7 @@ for name in sorted(os.listdir(REG)):
         state = "pickup"
     if root:
         if not cpid:
-            # The session is up but Claude has not registered yet: it is
+            # Within the grace window: Claude has not registered yet, so it is
             # starting, not gone. Calling it dead folded it out of the list for
             # the several seconds a resume takes.
             state = "running"
