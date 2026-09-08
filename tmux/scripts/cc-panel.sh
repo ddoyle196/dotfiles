@@ -816,10 +816,17 @@ enter_new() {
 # Type to narrow, enter to land on it. Nothing is started until you land: the
 # filter only moves the cursor, and the right pane follows as it always does.
 filter_mode() {
-  local k seq
+  local k seq last=""
   FILTER=""
   while :; do
-    snap_match; build; draw
+    # Only a changed query re-ranks. Snapping on every pass through the loop
+    # undid navigation: ctrl-n stepped forward and the top of the loop pulled
+    # the cursor straight back to the best match.
+    if [[ $FILTER != $last ]]; then
+      [[ -n $FILTER ]] && snap_match
+      last=$FILTER
+    fi
+    build; draw
     local hint="  enter opens  ·  ctrl-n/p next  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  esc cancels"
