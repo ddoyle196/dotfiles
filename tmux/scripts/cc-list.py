@@ -64,6 +64,7 @@ def pr_badges(tid):
     return out
 
 
+ASK_FRESH_DAYS = 2   # past this an unanswered ask cools to pickup
 STARTUP_GRACE = 90   # seconds a session may hold a name with no Claude yet
 blocks, cur = {"AGENTS": [], "PS": [], "PANES": []}, None
 for line in sys.stdin:
@@ -159,6 +160,14 @@ for name in sorted(os.listdir(REG)):
     blocked_on = rec.get("blocked_on") or ""
     if blocked_on:
         state = "waiting"
+    # An ask you have walked past for days has stopped being a question and
+    # become work sitting with you. Red is for "someone asked you something
+    # recently"; without a clock on it, every unanswered offer accumulates
+    # there and the colour stops carrying any urgency at all. The recap still
+    # names the question, so nothing is lost by letting it cool to pickup.
+    elif state == "answer" and \
+            time.time() - rec.get("updated_at", 0) > ASK_FRESH_DAYS * 86400:
+        state = "pickup"
     # A conversation you are still in cannot be finished. The classifier reads
     # the tail of the transcript, where "I fixed it, here is what happened"
     # looks exactly like the end of the thread — so a live, recently active
