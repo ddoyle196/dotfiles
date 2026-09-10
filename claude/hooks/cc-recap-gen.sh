@@ -80,11 +80,25 @@ case "$state" in
   *) state="pickup" ;;   # unparseable: assume it is yours, never hide it
 esac
 
-# The model called 11 of 28 conversations "answer" and 6 of those asked nothing
-# at all, which made red mean nothing. "Someone asked you something" is visible
-# in the text, so decide it in the text rather than trusting the classifier.
-ask_re='[?]|(should|shall) i|do you want|would you like|which (one|of|approach|option)|let me know|your call|want me to|say the word|confirm|approve|sign off|pick one|which would you'
-if printf '%s' "$final" | tail -c 400 | grep -qiE "$ask_re"; then
+# "Someone asked you something" is visible in the text, so decide it in the text
+# rather than trusting the classifier. Two rules earn most of the accuracy:
+#
+# Scan the END, not a window. An unanswered question lives in the closing
+# sentence; a 400-character window caught "confirmed", "approved" and stray
+# question marks from the middle of a report and turned two thirds of the list
+# red. Word boundaries matter for the same reason: "confirm" is an ask,
+# "confirmed" is a report of one.
+# Trailing list items, table rows and code fences are the question's options,
+# not its ending, so walk back past them to the sentence that does the asking.
+close=$(printf '%s\n' "$final" | sed 's/[[:space:]]*$//' | grep -v '^$' \
+  | grep -vE '^[[:space:]]*([-*+>|]|[0-9]+[.)]|`{3})' | tail -1)
+ask_re='\?[)"'"'"'`*_]*[[:space:]]*$'
+ask_re="$ask_re"'|\b(want me to|shall i|should i|do you want|would you like)\b'
+ask_re="$ask_re"'|\b(let me know|say the word|your call|up to you|tell me what|which would you)\b'
+# "still open" / "still stands" was tried here and dropped: it fired on "Still
+# open from earlier: parking maps aren't loaded" and on "the two questions for
+# Darshit still stand", neither of which is a question aimed at you.
+if printf '%s' "$close" | grep -qiE "$ask_re"; then
   [ "$state" = pickup ] && state=answer
 else
   [ "$state" = answer ] && state=pickup
