@@ -36,6 +36,63 @@ BG_NEW=$'\e[48;2;16;36;58m'
 # the eye finds at a glance in a list this long.
 C_BAR=$'\e[38;2;218;215;205m'
 C_TOPIC=$'\e[38;2;58;169;159m'
+# One colour for every topic made the tag column a texture rather than a label.
+# A topic keeps its colour for good, because the hash is over the name: the eye
+# learns "budget-tool is orange" and stops reading the word at all. Deliberately
+# clear of the state hues, which carry meaning of their own two columns over.
+# Eight readable hues do not cover thirteen topics, so each also gets a muted
+# twin: same hue, obviously the same family, still telling apart at a glance.
+TOPIC_HUES=(
+  "58;169;159"  "218;112;44"  "139;126;200"  "206;93;151"
+  "58;153;190"  "164;154;60"  "93;175;130"   "190;130;110"
+)
+typeset -a TOPIC_COLORS
+() {
+  local h r g b
+  for h in $TOPIC_HUES; do TOPIC_COLORS+=( $'\e[38;2;'"${h}"'m' ); done
+  for h in $TOPIC_HUES; do
+    IFS=';' read -r r g b <<< "$h"
+    TOPIC_COLORS+=( $'\e[38;2;'"$(( r * 72 / 100 ));$(( g * 72 / 100 ));$(( b * 72 / 100 ))"'m' )
+  done
+}
+
+typeset -A TCOL
+_hash_slot() {   # -> HSLOT, a stable starting point for this name
+  # `#t[i]` reads as 0 in zsh arithmetic: the char-code operator wants a plain
+  # parameter name, not a subscript, and every topic hashed to the same colour.
+  local t=$1 c; local -i n=0 i
+  for (( i=1; i<=${#t}; i++ )); do c=${t[i]}; (( n += #c * i )); done
+  HSLOT=$(( n % ${#TOPIC_COLORS} + 1 ))
+}
+
+# Hashing alone put two of nine topics on the same colour, which is exactly the
+# confusion the colours are there to remove. Probing from the hash keeps a
+# topic's colour stable while there is a free one, and sorted order makes the
+# outcome the same on every machine.
+assign_topic_colors() {
+  local -A used seen_live
+  local t; local -i slot k i n=${#TOPIC_COLORS}
+  TCOL=()
+  # More topics than colours, so the ones carrying actual conversations pick
+  # first. A declared-but-empty topic doubling up costs nothing; two live ones
+  # sharing a colour is the confusion this is meant to prevent.
+  for (( i=1; i<=NROWS; i++ )); do
+    [[ -n $r_id[i] && -n $r_topic[i] ]] && seen_live[$r_topic[i]]=1
+  done
+  for t in ${(f)"$(print -l -- ${(o)${(k)seen_live}} ${(ou)r_topic})"}; do
+    [[ -z $t ]] && continue
+    [[ -n ${TCOL[$t]:-} ]] && continue
+    _hash_slot "$t"; slot=$HSLOT
+    for (( k=0; k<n; k++ )); do
+      (( slot = (HSLOT - 1 + k) % n + 1 ))
+      [[ -z ${used[$slot]:-} ]] && break
+    done
+    used[$slot]=1
+    TCOL[$t]=$TOPIC_COLORS[$slot]
+  done
+}
+
+topic_color() { TC=${TCOL[$1]:-$C_TOPIC} }
 C_MAG=$'\e[38;2;138;97;213m'
 
 typeset -A ICON FG SNAME
@@ -58,7 +115,17 @@ ORDER_NAME=( act "actionability" topic "topic" age "recency" )
 ORDERS=( act topic age )
 
 ORDER=act
+# The list answers "what needs me now" by default. Everything that exists is
+# one key away, which is what keeps twenty conversations from reading as twenty
+# demands.
+typeset -A VIEW_NAME
+VIEW_NAME=( focus "needs you" all "everything" arch "archived" )
+VIEWS=( focus all arch )
+VIEW=focus
 FOLDED=1
+NUDGE_DAYS=3    # a block older than this has stopped being someone else's turn
+ARCHIVE_DAYS=14 # a finished conversation this stale files itself away
+SWEPT_AT=0
 FILTER=""       # live fuzzy filter, empty when not filtering
 REAP_HOURS=8    # stop the process behind a conversation nobody has touched
 REAPED_AT=0
@@ -76,8 +143,9 @@ MSG=""
 SELF="${0:A}"
 SELF_MTIME=$(stat -f %m "$SELF" 2>/dev/null)
 if [[ ${1:-} == --state ]]; then
-  IFS=: read -r CUR TOP ORDER FOLDED FOLLOW <<< "$2"
+  IFS=: read -r CUR TOP ORDER FOLDED FOLLOW VIEW <<< "$2"
   FOLLOW=${FOLLOW:-1}
+  VIEW=${VIEW:-focus}
 fi
 
 reload() {
@@ -86,7 +154,7 @@ reload() {
   # Re-fit the status-line legend too, so one reload refreshes the whole cockpit.
   tmux run-shell -b "$HOME/.tmux/scripts/cc-cockpit.sh --keybar" 2>/dev/null
   print -n $'\e[?25h\e[?1049l'
-  exec "$SELF" --state "${CUR}:${TOP}:${ORDER}:${FOLDED}:${FOLLOW}"
+  exec "$SELF" --state "${CUR}:${TOP}:${ORDER}:${FOLDED}:${FOLLOW}:${VIEW}"
 }
 
 # $COLUMNS and $LINES are not maintained in a non-interactive script parked in
@@ -110,15 +178,17 @@ refresh_now() {
 
 load() {
   r_id=(); r_topic=(); r_label=(); r_recap=(); r_state=(); r_cold=(); r_upd=()
-  r_new=(); r_prs=()
-  local id topic label recap state cold upd new prs
-  while IFS=$SEP read -r id topic label recap state cold upd new prs; do
+  r_new=(); r_prs=(); r_block=(); r_since=(); r_arch=()
+  local id topic label recap state cold upd new prs block since arch
+  while IFS=$SEP read -r id topic label recap state cold upd new prs block since arch; do
     r_id+=("$id"); r_topic+=("$topic"); r_label+=("$label"); r_recap+=("$recap")
     r_state+=("$state"); r_cold+=("$cold"); r_upd+=("$upd"); r_new+=("$new")
-    r_prs+=("$prs")
+    r_prs+=("$prs"); r_block+=("$block"); r_since+=("$since"); r_arch+=("$arch")
   done < <(jq -r --arg s "$SEP" --arg o "$ORDER" '
       def rank: {"answer":1,"running":2,"pickup":3,"waiting":4,"done":5,"dead":6,"empty":7}[.state] // 3;
-      def fin:  (if (.state=="done" or .state=="dead") and .cold then 1 else 0 end);
+      def fin:  (if .archived then 2
+                 elif (.state=="done" or .state=="dead") and .cold then 1
+                 else 0 end);
       [ .[] ]
       | (if   $o=="topic" then sort_by([fin, (.topic == ""), .topic, rank, -(.updated_at)])
          elif $o=="age"   then sort_by([fin, -(.updated_at)])
@@ -126,9 +196,12 @@ load() {
       | .[] | [.id, .topic, .label, .recap, .state,
                (if .cold then "1" else "0" end), (.updated_at|tostring),
                (if .unread then "1" else "0" end),
-               ([(.prs // [])[] | "\(.mark) \(.label)"] | join(","))] | join($s)
+               ([(.prs // [])[] | "\(.mark) \(.label)"] | join(",")),
+               (.blocked_on // ""), ((.blocked_since // 0)|tostring),
+               (if .archived then "1" else "0" end)] | join($s)
     ' "$CACHE" 2>/dev/null)
   NROWS=${#r_id}
+  assign_topic_colors
   resolve_sel
   # New data can change a whole block of lines at once — a row going unread
   # repaints its recap too — and a partially-applied frame left rows half
@@ -268,6 +341,7 @@ build() {
   (( lw < 12 )) && lw=12
 
   local folded_txt="finished shown" fincount=0 convos=0 i
+  local n_need=0 n_wait=0 n_fin=0 n_arch=0 inview_rows=0
   (( FOLDED )) && folded_txt="finished folded"
   for (( i=1; i<=NROWS; i++ )); do
     # Only a finished conversation that is also parked is out of the way. One
@@ -275,12 +349,26 @@ build() {
     # made whole topics vanish from the list.
     [[ ( $r_state[i] == done || $r_state[i] == dead ) && $r_cold[i] == 1 ]] && (( fincount++ ))
     [[ -n $r_id[i] ]] && (( convos++ ))    # placeholders for empty topics do not count
+    [[ -z $r_id[i] ]] && continue
+    if   [[ $r_arch[i] == 1 ]];                     then (( n_arch++ ))
+    elif [[ $r_state[i] == (done|dead) ]];          then (( n_fin++ ))
+    elif [[ $r_state[i] == waiting ]];              then (( n_wait++ ))
+    else                                                 (( n_need++ )); fi
   done
 
   if [[ -n $FILTER ]]; then
-    add text "  filtering" "" $C_TOPIC 0
+    add text "  filtering everything" "" $C_TOPIC 0
   else
-    add text "  ${convos} conversations   ${ORDER_NAME[$ORDER]}   ${folded_txt}" "" $C_FAINT 0
+    # The counts are the whole point of the header: what is on screen is one
+    # slice of them, and the others say how much is deliberately not.
+    local head="  ${C_TX}${n_need} need you${C_FAINT}"
+    (( n_wait )) && head+="  ·  ${n_wait} waiting"
+    (( n_fin ))  && head+="  ·  ${n_fin} done"
+    (( n_arch )) && head+="  ·  ${n_arch} filed"
+    add text "$head" "" $C_FAINT 0 "" \
+        $(( 11 + ${#n_need} + (n_wait ? 13 + ${#n_wait} : 0) \
+            + (n_fin ? 10 + ${#n_fin} : 0) + (n_arch ? 11 + ${#n_arch} : 0) ))
+    add text "  ${VIEW_NAME[$VIEW]}   ${ORDER_NAME[$ORDER]}   ${folded_txt}" "" $C_FAINT 0
   fi
   add blank "" "" "" 0
 
@@ -289,13 +377,27 @@ build() {
     st=$r_state[i]
     [[ $st == empty && $ORDER != topic && $i -ne $CUR ]] && continue
     matches $i || continue
-    # A search looks everywhere, so filtering overrides folding.
-    [[ -z $FILTER && $FOLDED == 1 && ( $st == done || $st == dead ) \
-       && $r_cold[i] == 1 && $r_id[i] != ${SEL_ID:-} ]] && continue
+    # A search looks everywhere, so filtering overrides both the view and the
+    # fold: a conversation you can name should never be hidden from you.
+    local in_view=1
+    if [[ -z $FILTER ]]; then
+      case $VIEW in
+        focus) [[ $r_arch[i] == 1 || $st == (waiting|done|dead) ]] && in_view=0 ;;
+        all)   [[ $r_arch[i] == 1 ]] && in_view=0 ;;
+        arch)  [[ $r_arch[i] != 1 ]] && in_view=0 ;;
+      esac
+      [[ $FOLDED == 1 && ( $st == done || $st == dead ) && $r_cold[i] == 1 ]] && in_view=0
+    fi
+    (( in_view )) && (( inview_rows++ ))
+    # What you are looking at never vanishes under you, even when the view it
+    # belongs to changes. Moving off it is what drops it from the list.
+    (( in_view )) || [[ $r_id[i] == ${SEL_ID:-} ]] || continue
     section_of $i
     if [[ $SECT != $seen ]]; then
       (( ${#L_kind} > 2 )) && add blank "" "" "" 0
-      add sect "$SECT" "" "$C_FAINT" 0
+      local sfg=$C_FAINT
+      [[ $ORDER == topic && -n $r_topic[i] ]] && { topic_color "$r_topic[i]"; sfg=$TC }
+      add sect "$SECT" "" "$sfg" 0
       seen=$SECT
     fi
     dim=${FG[$st]:-$C_BLU}
@@ -306,18 +408,16 @@ build() {
     elif [[ $r_cold[i] == 1 && $st != dead ]]; then
       mark="▪"; markc=$C_FAINT
     fi
-    local recap_fg=$C_MUT
-    [[ $st == done || $st == dead ]] && recap_fg=$C_FAINT
-    # Parked means nothing is running, so the row should read that way. A single
-    # faint dot was the only difference from a live conversation, and an unread
-    # row replaced even that.
-    local labc=$dim
-    [[ $r_cold[i] == 1 ]] && { labc=$C_FAINT; recap_fg=$C_FAINT }
+    # Grey means "not your problem right now". It used to mean "no process
+    # attached", which is a resource detail: a conversation idle since last
+    # night is still live work, and dimming it sent you hunting in the grey.
+    local recap_fg=$C_MUT labc=$dim
+    [[ $st == (done|dead|waiting) || $r_arch[i] == 1 ]] && { labc=$C_FAINT; recap_fg=$C_FAINT }
     ROWLINE[$i]=$(( ${#L_kind} + 1 ))
     age_of $r_upd[i]
     # Under any order but topic, the row is the only place the topic can show.
     local tag=""
-    [[ $ORDER != topic ]] && tag=$r_topic[i]
+    [[ $ORDER != topic ]] && { tag=$r_topic[i]; [[ -n $tag ]] && topic_color "$tag" }
     lw=$(( COLUMNS - 12 - ${#tag} ))
     (( lw < 12 )) && lw=12
     lab=$r_label[i]
@@ -330,6 +430,16 @@ build() {
         $(( 5 + ${#lab} ))
     wrap2 "$r_recap[i]" $inner
     for l in $WRAPPED; do add recap "       $l" "" "$recap_fg" "$i"; done
+    if [[ -n ${r_block[i]:-} ]]; then
+      # Who and how long. A block nobody has chased has quietly become yours
+      # again, so past NUDGE_DAYS the line stops being grey and says so.
+      local bd=0 btxt bfg=$C_FAINT
+      (( r_since[i] > 0 )) && bd=$(( (EPOCHSECONDS - r_since[i]) / 86400 ))
+      btxt="⧗ ${r_block[i]}"
+      (( bd > 0 )) && btxt+=" · ${bd}d"
+      if (( bd >= NUDGE_DAYS )); then btxt+=" · nudge"; bfg=$C_YEL; fi
+      add recap "       ${btxt}" "" "$bfg" "$i" "" $(( 7 + ${#btxt} ))
+    fi
     if [[ -n ${r_prs[i]:-} ]]; then
       badges=""; badge_w=0
       for b in ${(s:,:)r_prs[i]}; do
@@ -343,6 +453,13 @@ build() {
 
   if [[ -n $FILTER ]] && (( ${#ROWLINE} == 0 )); then
     add text "  nothing matches \"${FILTER}\"" "" "$C_FAINT" 0
+  elif [[ -z $FILTER ]] && (( inview_rows == 0 && NROWS > 0 )); then
+    add blank "" "" "" 0
+    case $VIEW in
+      focus) add text "  nothing needs you right now  (v shows the rest)" "" "$C_GRN" 0 ;;
+      arch)  add text "  nothing filed yet  (e files a finished one)" "" "$C_FAINT" 0 ;;
+      *)     add text "  nothing here  (z unfolds finished)" "" "$C_FAINT" 0 ;;
+    esac
   fi
   if [[ -z $FILTER ]] && (( fincount > 0 && FOLDED )); then
     add blank "" "" "" 0
@@ -376,7 +493,7 @@ compose() {
     sect)
       local lbl=${L_a[$i]} rule
       rule=$(( COLUMNS - ${#lbl} - 5 ))
-      LINE="${bg}${C_FAINT}  ${lbl} "
+      LINE="${bg}${L_fg[$i]:-$C_FAINT}  ${lbl} ${C_FAINT}"
       (( rule > 0 )) && LINE+="${(l:$rule::─:)}"
       LINE+=$'\e[K' ;;
     head)
@@ -392,7 +509,7 @@ compose() {
       fi
       if (( right )); then
         LINE+=$'\e['"$(( COLUMNS - right ))"'G'
-        [[ -n $tag ]] && LINE+="${C_TOPIC}${tag} "
+        [[ -n $tag ]] && LINE+="${TCOL[$tag]:-$C_TOPIC}${tag} "
         [[ -n $ag ]]  && LINE+="${C_FAINT}${ag}"
       fi
       ;;
@@ -682,6 +799,21 @@ reap_tick() {
   note "parked ${#${(f)out}} idle over ${REAP_HOURS}h — enter resumes any of them"
 }
 
+# The maintenance you were doing by hand: finished conversations file themselves
+# away, and a block whose date has arrived comes back on its own.
+sweep_tick() {
+  (( EPOCHSECONDS - SWEPT_AT < 900 )) && return
+  SWEPT_AT=$EPOCHSECONDS
+  local out
+  out=$("$HOST" sweep "$ARCHIVE_DAYS" 2>/dev/null)
+  [[ -z $out ]] && return
+  refresh_now; load; build
+  local woke=${#${(M)${(f)out}:#woke *}} filed=${#${(M)${(f)out}:#archived *}}
+  if (( woke && filed )); then note "woke ${woke}, filed ${filed}"
+  elif (( woke )); then         note "${woke} came back off waiting"
+  else                          note "filed ${filed} finished — v shows them"; fi
+}
+
 # Following puts a conversation on screen as you scroll, which is not reading
 # it. Only a conversation you have left up for a few seconds counts.
 mark_seen_tick() {
@@ -897,6 +1029,7 @@ while true; do
     follow_tick
     mark_seen_tick
     reap_tick
+    sweep_tick
     # Wait for the file to stop changing and to parse before re-exec'ing it.
     # Reloading mid-write ran a half-written script, which left the panel
     # spewing into the pane instead of drawing.
@@ -937,6 +1070,33 @@ while true; do
                     || note "right pane stays put — tab shows one" ;;
     o) local i=${ORDERS[(i)$ORDER]}; ORDER=${ORDERS[$(( i % ${#ORDERS} + 1 ))]}; load ;;
     z) FOLDED=$(( 1 - FOLDED )); DIRTY=1 ;;
+    e) (( NROWS )) && is_thread && {
+         # Filing is not removing: `d` is for a mistake, this is for a thread
+         # that is over. It comes straight back with another e in the v view.
+         if [[ $r_arch[$CUR] == 1 ]]; then
+           "$HOST" unarchive "$r_id[$CUR]"; refresh_now; load; note "back in the list"
+         else
+           "$HOST" archive "$r_id[$CUR]"; refresh_now; load; note "filed — v shows filed"
+         fi } ;;
+    v) local i=${VIEWS[(i)$VIEW]}; VIEW=${VIEWS[$(( i % ${#VIEWS} + 1 ))]}
+       note "${VIEW_NAME[$VIEW]}"; DIRTY=1 ;;
+    w) (( NROWS )) && is_thread && {
+         if [[ -n ${r_block[$CUR]:-} ]]; then
+           "$HOST" unblock "$r_id[$CUR]"; refresh_now; load; note "back on your plate"
+         else
+           # One field, because two prompts for one thought is a chore. A
+           # trailing "3d" is a date to look again, not part of the name.
+           ASK_CAND=( ${(f)"$("$HOST" blockers 2>/dev/null)"} )
+           if ask "Waiting on (add e.g. 3d to check back)" && [[ -n $REPLY ]]; then
+             local who=$REPLY days=0
+             if [[ $REPLY == (#b)(*[^0-9])([0-9]##)d ]]; then
+               who=${match[1]%% #}; days=$match[2]
+             fi
+             "$HOST" block "$r_id[$CUR]" "$who" "$days"
+             refresh_now; load
+             (( days )) && note "waiting on ${who}, back in ${days}d" || note "waiting on ${who}"
+           else MSG=""; fi
+         fi } ;;
     R) note "refreshing…"; refresh_now; load ;;
     $'\x0c') PREV=(); print -n $'\e[2J'; draw ;;
     /) filter_mode ;;

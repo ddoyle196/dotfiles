@@ -316,6 +316,57 @@ topic-rename)
                --arg o "$old" --arg n "$new"
   ;;
 label) _write "${2:?}" label "$(jq -Rn --arg v "${3:?}" '$v')" ;;
+block)  # the next move belongs to someone else, so it stops asking for yours
+  id="${2:?id required}"; who="${3:-someone}"; days="${4:-0}"
+  _write "$id" blocked_on    "$(jq -Rn --arg v "$who" '$v')"
+  _write "$id" blocked_since "$(date +%s)"
+  # A block with no date never comes back on its own, which is how a thread
+  # quietly dies. A date is a promise to look again, not a deadline.
+  if (( days > 0 )); then
+    _write "$id" wake_at "$(( $(date +%s) + days * 86400 ))"
+  else
+    _write "$id" wake_at 0
+  fi
+  ;;
+
+unblock)
+  id="${2:?id required}"
+  _write "$id" blocked_on '""'; _write "$id" blocked_since 0; _write "$id" wake_at 0
+  ;;
+
+archive)   _write "${2:?id required}" archived_at "$(date +%s)" ;;
+unarchive) _write "${2:?id required}" archived_at 0 ;;
+
+sweep)  # the maintenance you were doing by hand
+  days="${2:-14}"
+  now=$(date +%s)
+  for f in "$REG"/${PREFIX}*.json(N); do
+    id=$(basename "$f" .json)
+    # A block whose date has arrived returns to the list on its own. Waking it
+    # here rather than in the renderer means it happens once, and stays woken.
+    wake=$(jq -r '.wake_at // 0' "$f")
+    if (( wake > 0 && wake <= now )); then
+      _write "$id" blocked_on '""'; _write "$id" blocked_since 0; _write "$id" wake_at 0
+      print -r -- "woke $id"
+      continue
+    fi
+    (( days > 0 )) || continue
+    [[ $(jq -r '.archived_at // 0' "$f") != 0 ]] && continue
+    state=$(jq -r '.state // ""' "$f")
+    [[ $state == done || $state == dead ]] || continue
+    last=$(jq -r '[.updated_at // 0, .last_seen // 0, .created // 0] | max' "$f")
+    (( last > now - days * 86400 )) && continue
+    _alive "$id" && continue        # still has a process: still a conversation
+    _write "$id" archived_at "$now"
+    print -r -- "archived $id"
+  done
+  ;;
+
+blockers)  # names already used, so the prompt can complete them
+  jq -r -s '[.[] | .blocked_on // "" | select(. != "")] | unique | .[]' \
+    "$REG"/${PREFIX}*.json(N) 2>/dev/null
+  ;;
+
 stop)  tmux kill-session -t "=${2:?}" 2>/dev/null; true ;;   # park: process ends, entry stays
 forget)                                                       # delete for good
   tmux kill-session -t "=${2:?}" 2>/dev/null
