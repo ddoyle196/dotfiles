@@ -153,6 +153,12 @@ for name in sorted(os.listdir(REG)):
         dirty = True
 
     state = rec.get("state") or ""
+    # A conversation you are blocked on is not yours to act on, whatever the
+    # transcript's last line sounded like. The explicit mark outranks the
+    # classifier, which is the point of setting it by hand.
+    blocked_on = rec.get("blocked_on") or ""
+    if blocked_on:
+        state = "waiting"
     # A conversation you are still in cannot be finished. The classifier reads
     # the tail of the transcript, where "I fixed it, here is what happened"
     # looks exactly like the end of the thread — so a live, recently active
@@ -196,6 +202,10 @@ for name in sorted(os.listdir(REG)):
         "unread": rec.get("updated_at", 0) > rec.get("last_seen", 0),
         "prs": pr_badges(tid),
         "state": state, "session_id": sid,
+        "blocked_on": blocked_on,
+        "blocked_since": rec.get("blocked_since", 0),
+        "wake_at": rec.get("wake_at", 0),
+        "archived": bool(rec.get("archived_at", 0)),
         # A conversation has no updated_at until its first recap is written, and
         # 0 sorts as the oldest thing there is — so a brand-new one fell to the
         # bottom of "most recent first". Fall back to when it was created.
@@ -217,7 +227,8 @@ if TOPICS:
             "id": "", "session": "", "topic": name, "label": "no conversations yet",
             "recap": "", "state": "empty", "session_id": "",
             "updated_at": 0, "created": 0, "cold": True,
-            "unread": False, "prs": [],
+            "unread": False, "prs": [], "archived": False,
+            "blocked_on": "", "blocked_since": 0, "wake_at": 0,
         })
 
 json.dump(out, sys.stdout)

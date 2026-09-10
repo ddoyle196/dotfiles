@@ -16,9 +16,9 @@ T_GRN="#[fg=#879a39]"; T_DEF="#[fg=default]"
 KEYS=(
   "enter:open"      "a:reply"         "tab:wake"        "/:jump"
   "{}:section"     "f:follow"        "o:order"         "z:fold"
-  "< >:width"
   "n:new"           "t:topic"         "i:import"  "r:rename"
-  "T:move"          "x:park"          "d:remove"
+  "T:move"          "x:park"          "w:wait"          "e:file"
+  "d:remove"        "v:view"
   "u:usage"         "^h:list"
   "q:leave"
 )
@@ -28,16 +28,18 @@ KEYS=(
 STATES=(
   "●:${T_RED}:answer"  "◐:${T_YEL}:running"  "○:${T_BLU}:pick up"
   "◌:${T_MUT}:waiting" "✓:${T_GRN}:done"     "▪:${T_FAINT}:parked"
-  "•:#[fg=#83b3e3]:unread"
+  "•:#[fg=#83b3e3]:unread" "⧗:${T_YEL}:blocked"
 )
 
 # Pull request badges, the same glyphs and colours the rows draw them with.
 # `unknown` is deliberately absent: it renders as the same dot as a parked
 # conversation and explaining it would cost more than it is worth.
+# Only the marks that change what you would do. Draft, closed and merged read
+# as themselves once you have seen the set, and the bar is worth more to the
+# keys than to a glossary.
 PRS=(
   "✗:${T_RED}:fail"       "◷:${T_YEL}:pending"  "✓:${T_GRN}:approved"
-  "⤳:#[fg=#8a61d5]:merged" "○:${T_BLU}:open"     "⊘:${T_FAINT}:draft"
-  "×:${T_FAINT}:closed"
+  "○:${T_BLU}:open"
 )
 
 W=80
