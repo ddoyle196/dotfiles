@@ -40,7 +40,12 @@ PR_WEIGHT = {"create": 4, "merge": 3, "ready": 3, "edit": 3, "comment": 3,
              "view": 1}
 PR_FLOOR = 2      # below this it was only mentioned, not worked on
 HARVEST_EVERY = 10      # seconds; the transcripts barely move between ticks
-STATUS_EVERY = 120      # seconds; one gh call per repo, so keep it unhurried
+STATUS_EVERY = 300      # seconds; ~40 GraphQL points per repo, so keep it unhurried
+# GitHub's GraphQL budget is 5000 points/hour per user, and it's shared with
+# every gh call this account makes. Only repos we own get polled: a PR opened
+# against someone else's project turns up in the recent-100 listing rarely and
+# the per-PR backfill for it would cost points every cycle, forever.
+STATUS_OWNERS = {"SiteMap-CRE", "ddoyle196"}
 # The first sight of a transcript is read in full. Truncating it would make the
 # token and time totals silently wrong, and reporting those to work is the point.
 MAX_TAIL = 0
@@ -288,6 +293,14 @@ def status(repos, wanted=()):
     now = int(time.time())
     if now - st.get("_fetched_at", 0) < STATUS_EVERY:
         return st
+    # Claim the window before asking GitHub. A fetch takes tens of seconds and
+    # `list` fires this detached on every refresh, so without the claim every
+    # refresh in that window started its own full fetch — the stampede that
+    # exhausted the hourly GraphQL budget.
+    st["_fetched_at"] = now
+    save(STATE, st)
+    repos = [r for r in repos if r.split("/")[0] in STATUS_OWNERS]
+    wanted = [k for k in wanted if k.split("/")[0] in STATUS_OWNERS]
     out = {"_fetched_at": now}
     for repo in repos:
         try:
