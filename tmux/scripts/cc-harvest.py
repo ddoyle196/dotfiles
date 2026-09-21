@@ -42,10 +42,23 @@ PR_FLOOR = 2      # below this it was only mentioned, not worked on
 HARVEST_EVERY = 10      # seconds; the transcripts barely move between ticks
 STATUS_EVERY = 300      # seconds; ~40 GraphQL points per repo, so keep it unhurried
 # GitHub's GraphQL budget is 5000 points/hour per user, and it's shared with
-# every gh call this account makes. Only repos we own get polled: a PR opened
-# against someone else's project turns up in the recent-100 listing rarely and
-# the per-PR backfill for it would cost points every cycle, forever.
-STATUS_OWNERS = {"SiteMap-CRE", "ddoyle196"}
+# every gh call this account makes. Only repos under owners you name get polled:
+# a PR opened against someone else's project turns up in the recent-100 listing
+# rarely and the per-PR backfill for it would cost points every cycle, forever.
+# Per machine, like the cockpit directory: the work laptop's PRs live under the
+# company orgs and the personal one's under a username, and a list baked into
+# the script silently stopped the badges on whichever machine it wasn't for.
+# Nothing recorded means no filter, so a fresh clone shows badges rather than
+# quietly hiding them.
+def status_owners():
+    raw = os.environ.get("COCKPIT_PR_OWNERS", "")
+    if not raw:
+        try:
+            with open(os.path.expanduser("~/.claude/cockpit/pr-owners")) as fh:
+                raw = fh.read()
+        except OSError:
+            raw = ""
+    return {o.strip() for o in raw.replace(",", " ").split() if o.strip()}
 # The first sight of a transcript is read in full. Truncating it would make the
 # token and time totals silently wrong, and reporting those to work is the point.
 MAX_TAIL = 0
@@ -299,8 +312,10 @@ def status(repos, wanted=()):
     # exhausted the hourly GraphQL budget.
     st["_fetched_at"] = now
     save(STATE, st)
-    repos = [r for r in repos if r.split("/")[0] in STATUS_OWNERS]
-    wanted = [k for k in wanted if k.split("/")[0] in STATUS_OWNERS]
+    owners = status_owners()
+    if owners:
+        repos = [r for r in repos if r.split("/")[0] in owners]
+        wanted = [k for k in wanted if k.split("/")[0] in owners]
     out = {"_fetched_at": now}
     for repo in repos:
         try:
