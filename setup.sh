@@ -130,6 +130,7 @@ install_cockpit() {
     backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
 
   record_cockpit_dir
+  record_pr_owners
   register_recap_hook
   register_nested_md_hook
 
@@ -143,6 +144,28 @@ install_cockpit() {
 # whatever launched it, which is rarely the shell you are typing in. Set once,
 # and never guessed - an unset COCKPIT_DIR on a fresh machine means $HOME, which
 # is harmless, rather than a path from somebody else's laptop.
+# Which GitHub owners the PR badges poll. Same file-not-rc reasoning as the
+# directory above. The suggested default is your login plus every org you are
+# in, which is where your own PRs live; empty means poll everything.
+record_pr_owners() {
+  local f="$HOME/.claude/cockpit/pr-owners" owners="${COCKPIT_PR_OWNERS:-}" guess=""
+  mkdir -p "$HOME/.claude/cockpit"
+  if [[ -n "$owners" ]]; then
+    :
+  elif [[ -s "$f" ]]; then
+    log "PR badge owners already set: $(tr '\n' ' ' < "$f")"
+    return
+  elif [[ -t 0 ]]; then
+    if command -v gh &>/dev/null; then
+      guess=$( { gh api user -q .login; gh api user/orgs -q '.[].login'; } 2>/dev/null | tr '\n' ' ')
+    fi
+    read -r -p "GitHub owners whose PRs to badge [${guess:-all}]: " owners
+    owners="${owners:-$guess}"
+  fi
+  printf '%s\n' $owners > "$f"
+  log "PR badge owners: ${owners:-all}"
+}
+
 record_cockpit_dir() {
   local f="$HOME/.claude/cockpit/dir" dir="${COCKPIT_DIR:-}"
   mkdir -p "$HOME/.claude/cockpit" "$HOME/.claude/session-index"
@@ -152,7 +175,7 @@ record_cockpit_dir() {
     log "Cockpit directory already set: $(cat "$f")"
     return
   elif [[ -t 0 ]]; then
-    read -r "dir?Directory for new cockpit conversations [$HOME]: "
+    read -r -p "Directory for new cockpit conversations [$HOME]: " dir
   fi
   dir="${dir:-$HOME}"
   eval dir="$dir"                       # let a typed ~ or $HOME expand
