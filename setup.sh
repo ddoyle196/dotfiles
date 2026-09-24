@@ -123,7 +123,7 @@ install_cockpit() {
   for f in "$DOTFILES_DIR"/tmux/scripts/lib/*; do
     backup_and_link "$f" "$HOME/.tmux/scripts/lib/$(basename "$f")"
   done
-  for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py; do
+  for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py chrome-browser-pin.py; do
     backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
   done
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
@@ -133,6 +133,7 @@ install_cockpit() {
   record_pr_owners
   register_recap_hook
   register_nested_md_hook
+  register_chrome_pin_hook
 
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
@@ -231,6 +232,36 @@ register_nested_md_hook() {
   jq --arg c "$cmd" \
      '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{
         matcher: "Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob",
+        hooks: [{type: "command", command: $c}]
+      }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
+# Every machine shares one Claude account, so Claude in Chrome can reach any
+# machine's browser and defaults to whichever was used last. This keeps each
+# machine's sessions on its own Chrome: every browser tool is denied until
+# select_browser names the deviceId found in this machine's extension storage.
+# PostToolUse records that the pick succeeded, which is what unlocks the rest.
+register_chrome_pin_hook() {
+  local settings="$HOME/.claude/settings.json"
+  local cmd='$HOME/.claude/hooks/chrome-browser-pin.py'
+
+  command -v jq &>/dev/null || { warn "jq not found, skipping Chrome pin hook"; return; }
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+  if jq -e --arg c "$cmd" \
+       '[.hooks.PreToolUse[]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
+    log "Chrome pin hook already registered"
+    return
+  fi
+
+  log "Registering Chrome pin hook in settings.json"
+  jq --arg c "$cmd" \
+     '.hooks.PreToolUse = ((.hooks.PreToolUse // []) + [{
+        matcher: "mcp__claude-in-chrome__.*",
+        hooks: [{type: "command", command: $c}]
+      }])
+      | .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{
+        matcher: "mcp__claude-in-chrome__select_browser",
         hooks: [{type: "command", command: $c}]
       }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
 }
