@@ -2,6 +2,7 @@
 # Open the cockpit: one session holding the list and the conversation you picked,
 # built once and reused, so coming back lands you where you were.
 #   --ensure   build it if missing, then stop (tmux does the switching)
+#   --heal     grow back a pane that was closed (tmux.conf runs it on every close)
 emulate -L zsh
 S=cockpit
 DIR="$HOME/.tmux/scripts"
@@ -16,6 +17,8 @@ keybar() {
   w=$(tmux display -p -t "$sess" '#{client_width}' 2>/dev/null)
   [[ -n $w && $w -gt 0 ]] || w=$(tmux display -p -t "$sess" '#{window_width}' 2>/dev/null)
   n=$("$DIR/cc-keys.sh" fit "${w:-186}")
+  # tmux allows five status rows at most; a very narrow client loses the tail.
+  (( n > 5 )) && n=5
   tmux set -t "$sess" status "$n"
   tmux set -t "$sess" status-position bottom
   tmux set -t "$sess" status-style "bg=default"
@@ -29,7 +32,42 @@ keybar() {
   tmux set-hook -t "$sess" client-resized "run-shell '$DIR/cc-cockpit.sh --keybar'"
 }
 
+panes() { tmux list-panes -t "=$S:" -F '#{pane_id}' 2>/dev/null }
+alive() { [[ -n $1 ]] && panes | grep -qx -- "$1" }
+
+# Either pane can be closed by a stray keystroke and tmux has no undo, so grow
+# whichever is missing back. The list pane is found by what it runs; the stage
+# pane cannot be, since every conversation respawns it with a new command.
+heal() {
+  tmux has-session -t "=$S" 2>/dev/null || return 0
+  local list=$(tmux show -t "$S" -v @list_pane 2>/dev/null)
+  local stage=$(tmux show -t "$S" -v @stage_pane 2>/dev/null)
+  local width=$(tmux show -t "$S" -v @list_width 2>/dev/null)
+  local grown=0
+  width=${width:-$WIDTH}
+
+  alive "$list" || list=$(tmux list-panes -t "=$S:" -F '#{pane_id} #{pane_start_command}' \
+                            | grep -E 'cc-(run-)?panel.sh' | head -1 | cut -d' ' -f1)
+  if [[ -z $list ]]; then
+    list=$(tmux split-window -hb -f -l "$width" -P -F '#{pane_id}' \
+             -t "$(panes | head -1)" -c "$CWD" "$DIR/cc-run-panel.sh") || return 1
+    grown=1
+  fi
+  alive "$stage" && [[ $stage != "$list" ]] || stage=$(panes | grep -vx -- "$list" | head -1)
+  [[ -n $stage ]] || stage=$(tmux split-window -h -d -P -F '#{pane_id}' \
+                               -t "$list" -c "$CWD" "$DIR/cc-stage.sh")
+
+  tmux set -t "$S" @list_pane "$list"
+  tmux set -t "$S" @stage_pane "$stage"
+  tmux set -t "$S" @list_width "$width"
+  tmux resize-pane -t "$list" -x "$width"
+  (( grown )) && tmux select-pane -t "$list"
+  return 0
+}
+
 if [[ ${1:-} == --keybar ]]; then keybar "$S"; exit 0; fi
+# A hook can fire while tmux is still taking the pane down; let it finish first.
+if [[ ${1:-} == --heal ]]; then sleep 0.2; heal; exit 0; fi
 
 if ! tmux has-session -t "=$S" 2>/dev/null; then
   # Born at the client's size: a session created at the default 80 columns has
@@ -62,16 +100,7 @@ if [[ -n $old ]]; then
   tmux set -u -t "$S" @keys_pane 2>/dev/null
   tmux set -u -t "$S" @keys_height 2>/dev/null
 fi
-[[ -z $(tmux show -t "$S" -v @list_pane 2>/dev/null) ]] && {
-  list=$(tmux list-panes -t "$S" -F '#{pane_id} #{pane_start_command}' 2>/dev/null \
-         | grep -E 'cc-(run-)?panel.sh' | head -1 | cut -d' ' -f1)
-  [[ -n $list ]] && {
-    tmux set -t "$S" @list_pane "$list"
-    tmux set -t "$S" @list_width "$(tmux display -p -t "$list" '#{pane_width}')"
-    stage=$(tmux list-panes -t "$S" -F '#{pane_id}' | grep -vx "$list" | head -1)
-    [[ -n $stage ]] && tmux set -t "$S" @stage_pane "$stage"
-  }
-}
+heal
 keybar "$S"
 
 [[ ${1:-} == --ensure ]] && exit 0

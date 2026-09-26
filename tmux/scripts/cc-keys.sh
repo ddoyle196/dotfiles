@@ -15,12 +15,14 @@ T_GRN="#[fg=#879a39]"; T_DEF="#[fg=default]"
 # key, what it does. Ordered by how often you reach for it.
 KEYS=(
   "enter:open"      "a:reply"         "tab:wake"        "/:jump"
-  "{}:section"     "f:follow"        "o:order"         "z:fold"
-  "n:new"           "t:topic"         "i:import"  "r:rename"
-  "T:move"          "x:park"          "w:wait"          "e:file"
-  "d:remove"        "v:view"
-  "u:usage"         "^h:list"
-  "q:leave"
+  "q ^s a:exit"
+  "j k:up/down"     "{}:section"      "g G:first/last"
+  "f:follow"        "o:order"         "z:fold"          "v:view"
+  "< >:width"       "n:new"           "t:topic"         "i:import"
+  "r:rename"        "T:move"          "x:park"          "w:wait"
+  "e:file"          "d:remove"        "D:drop topic"
+  "u:usage"         "R:refresh"       "^l:redraw"       "^r:reload"
+  "^h:list"
 )
 # glyph, colour, label — kept apart so the width can be counted without having
 # to strip style tags back out of a rendered string. Braces are load-bearing:
@@ -51,6 +53,12 @@ flow() {   # flow <widths array name> <rendered array name> -> LINES_OUT
   local i line="" plain=0
   LINES_OUT=()
   for (( i=1; i<=${#r}; i++ )); do
+    # A zero-width item is a forced break: the marks start a row of their own
+    # rather than trailing the keys and leaving two glyphs orphaned below.
+    if (( w[i] == 0 )); then
+      [[ -n $line ]] && { LINES_OUT+=("$line"); line=""; plain=0 }
+      continue
+    fi
     if (( plain && plain + 3 + w[i] > W - 2 )); then
       LINES_OUT+=("$line"); line=""; plain=0
     fi
@@ -68,17 +76,17 @@ build_lines() {   # -> LINES_OUT
     iw+=( $(( ${#k} + 1 + ${#d} )) )
     ir+=( "${T_KEY}${k}${T_MUT} ${d}" )
   done
-  # The divider rides with the first status rather than standing alone, so a
-  # wrap can never leave it dangling at the end of a line.
-  local sep="${T_FAINT}│   " sepw=4
+  # The marks open a row of their own, so no divider stands between the two.
+  iw+=( 0 ); ir+=( "" )
+  local sep="" sepw=0
   for item in "${STATES[@]}"; do
     g=${item%%:*}; c=${${item#*:}%:*}; d=${item##*:}
     iw+=( $(( sepw + 2 + ${#d} )) )
     ir+=( "${sep}${c}${g}${T_MUT} ${d}" )
     sep=""; sepw=0
   done
-  # Its own divider, so the pull-request glyphs read as a set rather than as
-  # more conversation states.
+  # A divider rides with the first pull-request glyph rather than standing
+  # alone, so the badges read as a set and a wrap never leaves it dangling.
   sep="${T_FAINT}│   "; sepw=4
   for item in "${PRS[@]}"; do
     g=${item%%:*}; c=${${item#*:}%:*}; d=${item##*:}

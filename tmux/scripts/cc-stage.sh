@@ -39,6 +39,7 @@ paint() {
   print -r -- "   ${YEL}z${RS}     ${MUT}fold finished${RS}    ${YEL}?${RS} ${MUT}all keys${RS}"
   print -r -- ""
   print -r -- "   ${MUT}ctrl-h comes back to the list from any conversation.${RS}"
+  print -r -- "   ${MUT}q in the list, or ctrl-s a from anywhere, leaves the cockpit.${RS}"
 }
 
 # The outer pane repaints itself once the client that was here finishes leaving,
