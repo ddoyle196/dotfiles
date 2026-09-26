@@ -17,6 +17,8 @@ local KEYS = {
   { group = "Go" },
   { "<CR>",  view.open,        "open it and start typing" },
   { "<Tab>", view.peek,        "show it, stay in the list" },
+  { "<LeftMouse>",   view.click,     "show the one you clicked",  show = "click" },
+  { "<2-LeftMouse>", view.dbl_click, "open the one you clicked",  show = "2 clicks" },
   { "R",     view.refresh,     "refresh now" },
   { "q",     "close",          "close the cockpit" },
   { "?",     "help",           "this list" },
@@ -54,7 +56,7 @@ local ICON_ORDER = { "answer", "running", "pickup", "waiting", "done", "dead" }
 
 -- The state glyphs are double-width, so byte padding would stagger the column.
 local function entry(key, text)
-  return ("    %s%s %s"):format(key, string.rep(" ", math.max(1, 8 - vim.fn.strdisplaywidth(key))), text)
+  return ("    %s%s %s"):format(key, string.rep(" ", math.max(1, 9 - vim.fn.strdisplaywidth(key))), text)
 end
 
 function M.help()
@@ -64,7 +66,7 @@ function M.help()
       table.insert(lines, "")
       table.insert(lines, "  " .. k.group)
     else
-      table.insert(lines, entry(k[1], k[3]))
+      table.insert(lines, entry(k.show or k[1], k[3]))
     end
   end
   table.insert(lines, "")
@@ -105,6 +107,31 @@ local function keymaps(buf)
   end
 end
 
+-- The stage is a terminal, and under the default 'mouse' a terminal keeps the
+-- clicks for itself: clicking the sidebar mid-sentence would only move focus.
+-- "a" gives every click to nvim instead. The inner tmux gives up its own mouse
+-- handling for as long as a cockpit is open, and has it back the moment the
+-- last one closes.
+local saved_mouse = nil
+
+local function open_cockpits(excluding)
+  return vim.tbl_filter(function(b)
+    return b ~= excluding and vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == "cockpit"
+  end, vim.api.nvim_list_bufs())
+end
+
+local function claim_mouse(buf)
+  if saved_mouse == nil then saved_mouse = vim.o.mouse end
+  vim.o.mouse = "a"
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    buffer = buf,
+    callback = function()
+      if saved_mouse == nil or #open_cockpits(buf) > 0 then return end
+      vim.o.mouse, saved_mouse = saved_mouse, nil
+    end,
+  })
+end
+
 function M.open()
   vim.cmd("tabnew")
   local stage_win = vim.api.nvim_get_current_win()
@@ -132,6 +159,7 @@ function M.open()
   view.buf, view.win = buf, side_win
   stage.set_window(stage_win)
   keymaps(buf)
+  claim_mouse(buf)
   view.refresh()
 
   local grp = vim.api.nvim_create_augroup("Cockpit", { clear = true })

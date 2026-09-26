@@ -11,6 +11,8 @@ local HINTS = {
   "   tab    show it            n  new conversation",
   "   o      reorder            i  import a past one",
   "   z      fold finished      ?  all keys",
+  "",
+  "   The mouse works too: one click shows it, two open it.",
 }
 
 function M.set_window(win)

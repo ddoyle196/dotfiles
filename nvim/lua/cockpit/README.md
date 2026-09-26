@@ -25,6 +25,14 @@ costs nothing.
 | `stage.lua` | the docked terminal, one buffer per conversation              |
 | `host.lua`  | the only thing that talks to `~/.tmux/scripts/cc-host.sh`     |
 
+## The mouse
+
+Clicking the sidebar does what the keys do: one click shows a conversation, two
+open it. Because the stage is a terminal, that needs `mouse=a`, so an open
+cockpit takes `'mouse'` over for the session and hands it back — whatever it was
+— when the last one closes. The cost is that the tmux inside the stage stops
+seeing the mouse while the cockpit is up; scroll it from terminal-normal mode.
+
 ## Where the states come from
 
 Nothing is set by hand. `answer` and `running` are read live from
