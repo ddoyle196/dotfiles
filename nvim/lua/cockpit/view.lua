@@ -91,6 +91,7 @@ function M.render()
 
   local live, fin = sorted(M.rows)
   local lines, marks, index = {}, {}, {}
+  M.fold_line = nil
 
   local function push(text, hl, row)
     table.insert(lines, text)
@@ -128,6 +129,7 @@ function M.render()
     push("", nil)
     if M.folded then
       push(("  › %d finished"):format(#fin), "CockpitDone")
+      M.fold_line = #lines
     else
       for _, row in ipairs(fin) do emit(row, true) end
     end
@@ -158,6 +160,18 @@ function M.current()
   return M.index[vim.api.nvim_win_get_cursor(M.win or 0)[1]]
 end
 
+-- The mouse says what the keys say: one click shows a conversation, a second
+-- opens it. Clicking parks the cursor first, so every key that follows acts on
+-- what was clicked; lines that are not a conversation stay inert.
+local function clicked_line()
+  local pos = vim.fn.getmousepos()
+  if not (M.win and vim.api.nvim_win_is_valid(M.win)) or pos.winid ~= M.win then return nil end
+  local line = math.min(pos.line, vim.api.nvim_buf_line_count(M.buf))
+  if line < 1 then return nil end
+  vim.api.nvim_win_set_cursor(M.win, { line, 0 })
+  return line
+end
+
 -- actions ------------------------------------------------------------------
 
 function M.open()
@@ -172,6 +186,17 @@ function M.peek()
   M.sel = row.id
   stage.show(row)
   vim.defer_fn(M.refresh, 1500)
+end
+
+function M.click()
+  local line = clicked_line(); if not line then return end
+  if M.index and M.index[line] then M.peek()
+  elseif line == M.fold_line then M.toggle_fold() end
+end
+
+function M.dbl_click()
+  local line = clicked_line(); if not line then return end
+  if M.index and M.index[line] then M.open() end
 end
 
 function M.cycle_order()
