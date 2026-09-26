@@ -742,10 +742,25 @@ stage_pane() {
   tmux list-panes -F '#{pane_id}' 2>/dev/null | grep -v "^${TMUX_PANE}\$" | head -1
 }
 
+# A closed conversation pane has no undo in tmux, so an explicit open grows it
+# back rather than leaving the list full-width with nowhere to show anything.
+# Only explicit opens do this: following the cursor must not undo a close.
+ensure_stage_pane() {
+  local st=$(stage_pane)
+  [[ -n $st ]] && tmux list-panes -F '#{pane_id}' 2>/dev/null | grep -qx -- "$st" && {
+    print -r -- "$st"; return
+  }
+  st=$(tmux split-window -h -d -P -F '#{pane_id}' -t "$TMUX_PANE" "$STAGE") || return
+  tmux set @stage_pane "$st"
+  local w=$(tmux show -v @list_width 2>/dev/null)
+  tmux resize-pane -t "$TMUX_PANE" -x "${w:-54}"
+  print -r -- "$st"
+}
+
 show_row() {  # show_row <focus 0|1> — resumes a parked conversation
   (( NROWS == 0 )) && return
   is_thread || { no_thread; return }
-  local id=$r_id[$CUR] st=$(stage_pane)
+  local id=$r_id[$CUR] st=$(ensure_stage_pane)
   [[ -z $st ]] && { note "no room for a conversation pane"; return }
   [[ $r_cold[$CUR] == 1 ]] && note "resuming ${r_label[$CUR]}…"
   "$HOST" start "$id" >/dev/null 2>&1
@@ -892,7 +907,7 @@ reply_to() {
 
 # A full-screen read of where the tokens and the hours went. `q` returns.
 usage_view() {
-  local st=$(stage_pane)
+  local st=$(ensure_stage_pane)
   [[ -z $st ]] && { note "no room to show it"; return }
   tmux respawn-pane -k -t "$st" \
     "'$HOST' usage | less -R -S; exec '$STAGE'" 2>/dev/null
