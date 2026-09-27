@@ -85,11 +85,18 @@ entry stays, and `enter` resumes it from its transcript.
 |---|---|
 | `enter` | open it (resumes a parked one) |
 | `a` | reply without leaving the list |
-| `/` | fuzzy jump |
+| `/` | fuzzy jump by name  (`ctrl-g` searches what was said) |
 | `t` / `n` | new topic / new conversation |
 | `x` / `d` | park (stop the process) / remove |
 | `u` | tokens and time per topic |
 | `?` | the full legend lives in the status bar |
+
+`/` matches labels as you type; `ctrl-g` in the same prompt searches what was
+*said* instead, and shows the line it was found on. cc-harvest.py keeps the prose
+of each conversation in a file of its own for this — a transcript is about 99%
+tool calls, tool output and thinking, so the part worth searching is small enough
+to scan on a pause in typing. Removed conversations are searched too and marked
+`⌕`; `enter` offers to bring one back.
 
 Rows show what each conversation needs from you (`answer`, `pick up`, `waiting`,
 `done`), whether it has spoken since you last looked, and any pull requests it

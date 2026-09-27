@@ -9,6 +9,8 @@ zmodload zsh/system      # sysparams[pid], which unlike $$ differs in a subshell
 
 HOST="$HOME/.tmux/scripts/cc-host.sh"
 STAGE="$HOME/.tmux/scripts/cc-stage.sh"
+SEARCHER="$HOME/.tmux/scripts/cc-search.py"
+REG="$HOME/.claude/cockpit/threads"
 CACHE="${TMPDIR:-/tmp}/cc-panel-$UID.json"
 LOG="${TMPDIR:-/tmp}/cc-panel-$UID.log"
 
@@ -127,6 +129,13 @@ NUDGE_DAYS=3    # a block older than this has stopped being someone else's turn
 ARCHIVE_DAYS=14 # a finished conversation this stale files itself away
 SWEPT_AT=0
 FILTER=""       # live fuzzy filter, empty when not filtering
+# `/` matches labels as you type; ctrl-g in the same prompt searches what was
+# said instead, which costs a fork over a few megabytes and so waits for a pause
+# in typing rather than running on every key.
+SEARCH=0        # 1 while the query is being matched against the transcripts
+SQUERY=""       # the query HIT currently describes, so a pause re-runs only once
+typeset -gA HIT # cc id -> the line the query was found on
+SEARCH_ICON="⌕"
 REAP_HOURS=8    # stop the process behind a conversation nobody has touched
 REAPED_AT=0
 FOLLOW=1        # the right pane tracks the cursor on its own
@@ -178,12 +187,13 @@ refresh_now() {
 
 load() {
   r_id=(); r_topic=(); r_label=(); r_recap=(); r_state=(); r_cold=(); r_upd=()
-  r_new=(); r_prs=(); r_block=(); r_since=(); r_arch=()
+  r_new=(); r_prs=(); r_block=(); r_since=(); r_arch=(); r_gone=()
   local id topic label recap state cold upd new prs block since arch
   while IFS=$SEP read -r id topic label recap state cold upd new prs block since arch; do
     r_id+=("$id"); r_topic+=("$topic"); r_label+=("$label"); r_recap+=("$recap")
     r_state+=("$state"); r_cold+=("$cold"); r_upd+=("$upd"); r_new+=("$new")
     r_prs+=("$prs"); r_block+=("$block"); r_since+=("$since"); r_arch+=("$arch")
+    r_gone+=(0)
   done < <(jq -r --arg s "$SEP" --arg o "$ORDER" '
       def rank: {"answer":1,"running":2,"pickup":3,"waiting":4,"done":5,"dead":6,"empty":7}[.state] // 3;
       def fin:  (if .archived then 2
@@ -225,10 +235,34 @@ resolve_sel() {
   SEL_ID=${r_id[$CUR]:-}
 }
 
+# Runs the query against what was said and keeps the answer in HIT. A removed
+# conversation that matches is appended as a row of its own: it is not in the
+# list to be filtered, and finding one is half the point of searching.
+run_search() {
+  local id live topic label upd line
+  HIT=(); SQUERY=$FILTER
+  [[ -z $FILTER ]] && return
+  while IFS=$SEP read -r id live topic label upd line; do
+    [[ -z $id ]] && continue
+    HIT[$id]=$line
+    (( live )) && continue
+    r_id+=("$id"); r_topic+=("$topic"); r_label+=("$label"); r_recap+=("")
+    r_state+=(dead); r_cold+=(1); r_upd+=("$upd"); r_new+=(0)
+    r_prs+=(""); r_block+=(""); r_since+=(0); r_arch+=(0); r_gone+=(1)
+  done < <(python3 "$SEARCHER" "$REG" "$FILTER" 2>/dev/null)
+  NROWS=${#r_id}
+  resolve_sel
+  PREV=()
+}
+
 # Subsequence matching over "label topic", turned into one glob so a keystroke
 # costs no forks: "rmtco" finds "RMT control via Glean MCP".
 matches() {   # matches <row>
   [[ -z $FILTER ]] && return 0
+  # Searching replaces the name match rather than adding to it: a hit is a hit,
+  # and a row whose label happens to share letters with the query is not one.
+  (( SEARCH )) && { [[ -n ${HIT[${r_id[$1]:-}]:-} ]] }  && return 0
+  (( SEARCH )) && return 1
   local q=${FILTER:l} c n pat="*"
   for (( n=1; n<=${#q}; n++ )); do
     c=${q[n]}
@@ -243,12 +277,33 @@ matches() {   # matches <row>
 # scattered through an unrelated label before it finds the RMT one. The list
 # order stays put — only the cursor prefers the better match.
 match_rank() {   # match_rank <row> -> MRANK, lower is better
+  # cc-search.py already ranked the hits, so in search mode the cursor should
+  # prefer whatever the list order put first rather than re-guess from the label.
+  (( SEARCH )) && { MRANK=1; return }
   local q=${FILTER:l} lab=${r_label[$1]:l} top=${r_topic[$1]:l}
   if   [[ $lab == ${q}* ]];  then MRANK=1
   elif [[ $top == ${q}* ]];  then MRANK=2
   elif [[ $lab == *${q}* ]]; then MRANK=3
   elif [[ $top == *${q}* ]]; then MRANK=4
   else                            MRANK=5; fi
+}
+
+# A removed conversation found by searching is brought back before it is opened,
+# because nothing else in the list can act on one. Asking first: the cockpit's
+# other destructive-looking keys do, and restoring silently would leave a row you
+# did not put there.
+restore_row() {   # restore_row <cc id> -> RESTORED, nonzero means it stayed removed
+  RESTORED=$1
+  # Not red, and not "removes it": bringing something back is the one confirm
+  # here that is not about losing anything.
+  confirm "Bring \"${r_label[$CUR]}\" back?" "brings it back" "$C_YEL" \
+    || { MSG=""; return 1 }
+  local back=$("$HOST" restore "$1" 2>/dev/null)
+  [[ -z $back ]] && { note "could not bring it back"; return 1 }
+  RESTORED=$back
+  refresh_now
+  note "brought back"
+  return 0
 }
 
 # Keeps the cursor on something the filter still shows.
@@ -357,7 +412,11 @@ build() {
   done
 
   if [[ -n $FILTER ]]; then
-    add text "  filtering everything" "" $C_TOPIC 0
+    if (( SEARCH )); then
+      add text "  ${SEARCH_ICON} searching what was said" "" $C_TOPIC 0
+    else
+      add text "  filtering everything" "" $C_TOPIC 0
+    fi
   else
     # The counts are the whole point of the header: what is on screen is one
     # slice of them, and the others say how much is deliberately not.
@@ -403,7 +462,9 @@ build() {
     dim=${FG[$st]:-$C_BLU}
     [[ $st == done || $st == dead ]] && dim=$C_FAINT
     local mark=" " markc=""
-    if [[ $r_new[i] == 1 && $st != empty ]]; then
+    if [[ ${r_gone[i]:-0} == 1 ]]; then
+      mark="⌕"; markc=$C_YEL
+    elif [[ $r_new[i] == 1 && $st != empty ]]; then
       mark="•"; markc=$'\e[38;2;131;179;227m' 
     elif [[ $r_cold[i] == 1 && $st != dead ]]; then
       mark="▪"; markc=$C_FAINT
@@ -428,8 +489,21 @@ build() {
     fi
     add head "  ${markc}${mark}${dim}${ICON[$st]:-○}${labc} ${lab}" "$tag" "$dim" "$i" "$AGE" \
         $(( 5 + ${#lab} ))
-    wrap2 "$r_recap[i]" $inner
-    for l in $WRAPPED; do add recap "       $l" "" "$recap_fg" "$i"; done
+    # The line the query was found on is what you are looking for, so in search
+    # mode it takes the recap's place rather than competing with it for the row.
+    local sub=$r_recap[i] subfg=$recap_fg
+    if (( SEARCH )) && [[ -n ${HIT[${r_id[i]}]:-} ]]; then
+      sub=${HIT[${r_id[i]}]}; subfg=$C_MUT
+    fi
+    wrap2 "$sub" $inner
+    for l in $WRAPPED; do add recap "       $l" "" "$subfg" "$i"; done
+    if [[ ${r_gone[i]:-0} == 1 ]]; then
+      # Shortened rather than wrapped: a second line of explanation would push
+      # the hit itself off a narrow list, and the ⌕ already says it was found.
+      local gtxt="removed · enter restores"
+      (( ${#gtxt} + 7 >= COLUMNS )) && gtxt="removed"
+      add recap "       ${gtxt}" "" "$C_FAINT" "$i" "" $(( 7 + ${#gtxt} ))
+    fi
     if [[ -n ${r_block[i]:-} ]]; then
       # Who and how long. A block nobody has chased has quietly become yours
       # again, so past NUDGE_DAYS the line stops being grey and says so.
@@ -452,7 +526,17 @@ build() {
   done
 
   if [[ -n $FILTER ]] && (( ${#ROWLINE} == 0 )); then
-    add text "  nothing matches \"${FILTER}\"" "" "$C_FAINT" 0
+    if (( SEARCH )); then
+      add text "  nothing said about \"${FILTER}\"" "" "$C_FAINT" 0
+    else
+      local miss="  nothing matches \"${FILTER}\"" tip="  (ctrl-g searches inside)"
+      if (( ${#miss} + ${#tip} < COLUMNS )); then
+        add text "${miss}${tip}" "" "$C_FAINT" 0
+      else
+        add text "$miss" "" "$C_FAINT" 0
+        (( ${#tip} < COLUMNS )) && add text "$tip" "" "$C_FAINT" 0
+      fi
+    fi
   elif [[ -z $FILTER ]] && (( inview_rows == 0 && NROWS > 0 )); then
     add blank "" "" "" 0
     case $VIEW in
@@ -683,11 +767,11 @@ ask() {  # ask <label> [current] -> REPLY; nonzero means backed out
   return 1
 }
 
-confirm() {
-  local k q=$1
+confirm() {   # confirm <question> [what y does] [colour]
+  local k q=$1 verb=${2:-removes it} fg=${3:-$C_RED}
   (( ${#q} > COLUMNS - 4 )) && q="${q[1,COLUMNS-5]}…"
-  print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_RED}  ${q}${RS}"
-  print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TX}  y removes it${C_FAINT}  ·  any other key cancels${RS}"
+  print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${fg}  ${q}${RS}"
+  print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TX}  y ${verb}${C_FAINT}  ·  any other key cancels${RS}"
   read -s -k1 k
   dirty_footer
   [[ $k == y || $k == Y ]]
@@ -963,18 +1047,21 @@ enter_new() {
 # Type to narrow, enter to land on it. Nothing is started until you land: the
 # filter only moves the cursor, and the right pane follows as it always does.
 filter_mode() {
-  local k seq last=""
-  FILTER=""
+  local k seq last="" pending=0
+  FILTER=""; SEARCH=0; SQUERY=""; HIT=()
   while :; do
     # Only a changed query re-ranks. Snapping on every pass through the loop
     # undid navigation: ctrl-n stepped forward and the top of the loop pulled
     # the cursor straight back to the best match.
     if [[ $FILTER != $last ]]; then
-      [[ -n $FILTER ]] && snap_match
+      (( SEARCH )) && pending=1
+      (( SEARCH )) || { [[ -n $FILTER ]] && snap_match }
       last=$FILTER
     fi
     build; draw
-    local hint="  enter opens  ·  ctrl-n/p next  ·  esc cancels"
+    local hint="  enter opens  ·  ctrl-n/p next  ·  ctrl-g searches inside  ·  esc cancels"
+    (( SEARCH )) && hint="  enter opens  ·  ctrl-n/p next  ·  ctrl-g back to names  ·  esc cancels"
+    (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  ctrl-g searches inside  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  esc cancels"
     # A footer that reaches the final cell leaves the terminal in pending wrap,
@@ -982,13 +1069,34 @@ filter_mode() {
     local q=$FILTER; local -i keep=$(( COLUMNS - 5 ))
     (( keep > 0 && ${#q} > keep )) && q="…${q[-keep,-1]}"
     print -n $'\e['"$(( LINES - 1 ))"';1H'$'\e[K'"${C_FAINT}${hint}${RS}"
-    print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TOPIC}  /${C_TX}${q}${RS}"$'\e[?25h'
+    local sigil="/"
+    (( SEARCH )) && sigil=$SEARCH_ICON
+    print -n $'\e['"$LINES"';1H'$'\e[K'"${C_TOPIC}  ${sigil}${C_TX}${q}${RS}"$'\e[?25h'
     dirty_footer
-    read -s -k1 k || break
+    # A search costs a fork over a few megabytes, so it waits for you to stop
+    # typing rather than running on every key. Names still match instantly.
+    if (( pending )); then
+      read -s -k1 -t 0.18 k
+      case $? in
+        0) : ;;
+        *) print -n $'\e[?25l'; run_search; snap_match; pending=0; continue ;;
+      esac
+    else
+      read -s -k1 k || break
+    fi
     print -n $'\e[?25l'
     case $k in
       $'\n'|$'\r')
-        FILTER=""; build; draw
+        # The row the cursor is on outlives the query, so the id is kept and the
+        # list rebuilt around it rather than reaching into a filtered array.
+        local picked=${r_id[$CUR]:-} gone=${r_gone[$CUR]:-0}
+        FILTER=""
+        if (( SEARCH )); then
+          SEARCH=0; HIT=(); SQUERY=""
+          (( gone )) && restore_row "$picked" && picked=$RESTORED
+          load; SEL_ID=$picked; resolve_sel
+        fi
+        build; draw
         (( NROWS )) && show_row 1
         return ;;
       $'\e')
@@ -998,6 +1106,16 @@ filter_mode() {
           continue
         fi
         break ;;
+      $'\x07')
+        if (( SEARCH )); then
+          SEARCH=0; HIT=(); SQUERY=""; pending=0
+          # Dropping the injected removed rows means rebuilding the list, which
+          # load() already does from the cache.
+          load
+        else
+          SEARCH=1; pending=1
+        fi
+        last=$FILTER ;;
       $'\x0e') snap_match 1 ;;
       $'\x10') snap_match -1 ;;
       $'\x7f'|$'\b') FILTER="${FILTER[1,-2]}" ;;
@@ -1006,7 +1124,9 @@ filter_mode() {
     esac
   done
   print -n $'\e[?25l'
-  FILTER=""; snap_match; build; draw
+  FILTER=""
+  if (( SEARCH )); then SEARCH=0; HIT=(); SQUERY=""; load; fi
+  snap_match; build; draw
 }
 
 # main ----------------------------------------------------------------------

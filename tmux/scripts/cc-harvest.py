@@ -8,6 +8,7 @@ scan is done.
 
   cc-harvest.py harvest <reg> <proj>    scan transcripts
   cc-harvest.py status                  refresh PR state from GitHub
+  cc-harvest.py text <reg>              extract what was said, for searching
 """
 import json, os, re, subprocess, sys, time
 
@@ -16,6 +17,14 @@ COCKPIT = os.path.join(HOME, ".claude", "cockpit")
 REFS = os.path.join(COCKPIT, "prs.json")
 USE = os.path.join(COCKPIT, "usage.json")
 STATE = os.path.join(COCKPIT, "pr-status.json")
+# What was said, one conversation per file, for `/` to search. A transcript is
+# about 99% tool calls, tool output and thinking; the prose is the 1% worth
+# searching, so the whole corpus greps in about a millisecond.
+TEXT = os.path.join(COCKPIT, "text")
+TEXT_AT = os.path.join(TEXT, "offsets.json")
+# Removed conversations stay searchable: "I know I talked about this" is exactly
+# when search earns its keep, and the panel offers to restore what it finds.
+GONE = os.path.join(COCKPIT, "removed")
 
 PR_URL = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)")
 # A conversation's own PR is the one it ran a command against. Scraping every
@@ -289,6 +298,100 @@ def harvest(reg_dir, proj_dir):
     return refs
 
 
+def said(rec):
+    """The prose in one transcript line: what you typed and what Claude wrote back.
+
+    Tool calls, tool output and thinking are left out on purpose. They are the
+    bulk of the bytes and none of the recall -- you look for a conversation by
+    what was said in it, and including a diff or a base64 image would bury that
+    under noise it can never match usefully.
+    """
+    kind = rec.get("type")
+    if kind not in ("user", "assistant"):
+        return []
+    content = (rec.get("message") or {}).get("content")
+    if isinstance(content, str):
+        blocks = [content]
+    elif isinstance(content, list):
+        blocks = [b.get("text", "") for b in content
+                  if isinstance(b, dict) and b.get("type") == "text"]
+    else:
+        return []
+    who = "you" if kind == "user" else "claude"
+    # One message to one line, so a hit can be shown as the line it was found on
+    # and a byte offset is all the state a resumed scan needs.
+    return [f"{who}: {' '.join(b.split())}" for b in blocks if b.strip()]
+
+
+def transcripts(reg_dir):
+    """Every conversation worth indexing, live and removed, as (sid, path)."""
+    for d in (reg_dir, GONE):
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if not (name.startswith("cc_") and name.endswith(".json")):
+                continue
+            rec = load(os.path.join(d, name), None) or {}
+            sid = rec.get("claude_session") or ""
+            cwd = rec.get("cwd") or ""
+            if not sid:
+                continue
+            proj = os.path.join(HOME, ".claude", "projects", cwd.replace("/", "-"))
+            path = os.path.join(proj, sid + ".jsonl")
+            if os.path.exists(path):
+                yield sid, path
+
+
+def text_index(reg_dir):
+    """Keep each conversation's prose in a file of its own, appending only.
+
+    Resumed by byte offset like the PR scan, and for the same reason: a tick has
+    to cost nothing. The offset only ever advances to the end of the last whole
+    line read, so a transcript caught mid-write is picked up next time rather
+    than indexed with half a record.
+    """
+    os.makedirs(TEXT, exist_ok=True)
+    at = load(TEXT_AT, {})
+    for sid, path in transcripts(reg_dir):
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        start = at.get(sid, 0)
+        out = os.path.join(TEXT, sid + ".txt")
+        # A replaced or truncated transcript, or an index file lost to a cleanup,
+        # is read again from the top rather than left permanently short.
+        if size < start or not os.path.exists(out):
+            start = 0
+        if size == start:
+            continue
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                chunk = fh.read()
+        except OSError:
+            continue
+        cut = chunk.rfind(b"\n") + 1
+        if not cut:
+            continue
+        lines = []
+        for raw in chunk[:cut].splitlines():
+            try:
+                rec = json.loads(raw)
+            except ValueError:
+                continue
+            lines.append(said(rec))
+        try:
+            with open(out, "a" if start else "w", encoding="utf-8") as fh:
+                for group in lines:
+                    for line in group:
+                        fh.write(line + "\n")
+        except OSError:
+            continue
+        at[sid] = start + cut
+    save(TEXT_AT, at)
+
+
 def rollup(pr):
     checks = pr.get("statusCheckRollup") or []
     worst = "pass"
@@ -359,6 +462,9 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "harvest":
         harvest(sys.argv[2], sys.argv[3])
+        text_index(sys.argv[2])
+    elif cmd == "text":
+        text_index(sys.argv[2])
     elif cmd == "status":
         refs = load(REFS, {})
         wanted = sorted({k for t, e in refs.items()
@@ -366,4 +472,4 @@ if __name__ == "__main__":
         repos = sorted({k.split("#")[0] for k in wanted})
         status(repos, wanted)
     else:
-        sys.exit("usage: cc-harvest.py harvest <reg> <proj> | status")
+        sys.exit("usage: cc-harvest.py harvest <reg> <proj> | status | text <reg>")
