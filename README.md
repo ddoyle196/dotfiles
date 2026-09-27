@@ -99,6 +99,13 @@ A conversation starts unfiled. `t` makes a topic when you want one and `T` files
 a conversation into it once you can see what it turned out to be, rather than
 asking you to name a category before the work exists.
 
+Claude Code's own `/branch` splits a conversation in two: it copies the history
+and moves you into the copy. The cockpit follows that move, so a `SessionStart`
+hook registers the conversation you branched away from as a parked row of its
+own, keeping the label it already had. `/branch cars` names the tangent you are
+now in; unnamed, it becomes `… (branch)`. One gesture, two rows, and the train of
+thought you left is one `enter` away.
+
 Each conversation remembers the directory it was started in and resumes there,
 so one cockpit can span several projects. `setup.sh` asks once where *new* ones
 should start and records it in `~/.claude/cockpit/dir`; `COCKPIT_DIR` in the

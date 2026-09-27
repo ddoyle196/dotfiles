@@ -123,7 +123,8 @@ install_cockpit() {
   for f in "$DOTFILES_DIR"/tmux/scripts/lib/*; do
     backup_and_link "$f" "$HOME/.tmux/scripts/lib/$(basename "$f")"
   done
-  for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py chrome-browser-pin.py; do
+  for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py chrome-browser-pin.py \
+           cockpit-branch.py; do
     backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
   done
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
@@ -134,6 +135,7 @@ install_cockpit() {
   register_recap_hook
   register_nested_md_hook
   register_chrome_pin_hook
+  register_cockpit_branch_hook
 
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
@@ -262,6 +264,32 @@ register_chrome_pin_hook() {
       }])
       | .hooks.PostToolUse = ((.hooks.PostToolUse // []) + [{
         matcher: "mcp__claude-in-chrome__select_browser",
+        hooks: [{type: "command", command: $c}]
+      }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
+# `/branch` copies the conversation and moves you into the copy, in the same pane,
+# and the cockpit follows that move on its own. Without this the conversation you
+# branched away from drops off the list; with it, the pane becomes the branch and
+# the original is registered as a parked row beside it. "fork" is the SessionStart
+# source `/branch` resumes under.
+register_cockpit_branch_hook() {
+  local settings="$HOME/.claude/settings.json"
+  local cmd='$HOME/.claude/hooks/cockpit-branch.py'
+
+  command -v jq &>/dev/null || { warn "jq not found, skipping cockpit branch hook"; return; }
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+  if jq -e --arg c "$cmd" \
+       '[.hooks.SessionStart[]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
+    log "Cockpit branch hook already registered"
+    return
+  fi
+
+  log "Registering cockpit branch hook in settings.json"
+  jq --arg c "$cmd" \
+     '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{
+        matcher: "fork",
         hooks: [{type: "command", command: $c}]
       }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
 }
