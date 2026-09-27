@@ -114,7 +114,7 @@ install_cockpit() {
   # save/restore-labels are not cockpit files, but tmux.conf points its resurrect
   # hooks at them, so they have to land in the same place.
   for f in cc-panel.sh cc-host.sh cc-stage.sh cc-keys.sh cc-cockpit.sh \
-           cc-run-panel.sh cc-list.py cc-harvest.py \
+           cc-run-panel.sh cc-list.py cc-harvest.py cc-search.py \
            save-labels.sh restore-labels.sh; do
     backup_and_link "$DOTFILES_DIR/tmux/scripts/$f" "$HOME/.tmux/scripts/$f"
   done
