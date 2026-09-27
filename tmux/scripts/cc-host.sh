@@ -128,7 +128,9 @@ new)
 
 register)  # adopt a transcript that has no process: recovery, and importing history
   sid="${2:?claude session id required}"
-  topic="${3:?topic required}"; label="${4:-$sid}"
+  # Unfiled is legitimate here for the same reason it is in `new`: a branch
+  # inherits the topic of what it came from, and that may be nothing yet.
+  topic="${3-}"; label="${4:-$sid}"
   id=$(_newid)
   _write "$id" topic          "$(jq -Rn --arg v "$topic" '$v')"
   _write "$id" label          "$(jq -Rn --arg v "$label" '$v')"
@@ -142,7 +144,7 @@ register)  # adopt a transcript that has no process: recovery, and importing his
     [[ -n "$tcwd" ]] && break
   done
   _write "$id" cwd "$(jq -Rn --arg v "${tcwd:-$CWD}" '$v')"
-  _topic_declare "$topic"
+  [[ -n "$topic" ]] && _topic_declare "$topic"
   if [[ -f "$IDX/$sid.json" ]]; then
     _write "$id" recap      "$(jq -c '.recap // ""' "$IDX/$sid.json")"
     _write "$id" state      "$(jq -c '.state // "pickup"' "$IDX/$sid.json")"
