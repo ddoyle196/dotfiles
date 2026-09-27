@@ -132,7 +132,9 @@ FILTER=""       # live fuzzy filter, empty when not filtering
 # `/` matches labels as you type; ctrl-g in the same prompt searches what was
 # said instead, which costs a fork over a few megabytes and so waits for a pause
 # in typing rather than running on every key.
+BASE_ROWS=0     # rows that came from the list, before a search appends to them
 SEARCH=0        # 1 while the query is being matched against the transcripts
+AUTO_SEARCH=0   # 1 when that happened because no name matched, not because you asked
 SQUERY=""       # the query HIT currently describes, so a pause re-runs only once
 typeset -gA HIT # cc id -> the line the query was found on
 SEARCH_ICON="⌕"
@@ -211,6 +213,10 @@ load() {
                (if .archived then "1" else "0" end)] | join($s)
     ' "$CACHE" 2>/dev/null)
   NROWS=${#r_id}
+  # Where the real list ends. A search appends its removed hits past this mark
+  # and truncates back to it first, so re-running one replaces those rows instead
+  # of stacking another copy on top.
+  BASE_ROWS=$NROWS
   assign_topic_colors
   resolve_sel
   # New data can change a whole block of lines at once — a row going unread
@@ -241,6 +247,23 @@ resolve_sel() {
 run_search() {
   local id live topic label upd line
   HIT=(); SQUERY=$FILTER
+  # Drop the hits the last search appended before adding this one's.
+  if (( ${BASE_ROWS:-0} < ${#r_id} )); then
+    local -i b=${BASE_ROWS:-0}
+    if (( b )); then
+      r_id=("${(@)r_id[1,b]}"); r_topic=("${(@)r_topic[1,b]}")
+      r_label=("${(@)r_label[1,b]}"); r_recap=("${(@)r_recap[1,b]}")
+      r_state=("${(@)r_state[1,b]}"); r_cold=("${(@)r_cold[1,b]}")
+      r_upd=("${(@)r_upd[1,b]}"); r_new=("${(@)r_new[1,b]}")
+      r_prs=("${(@)r_prs[1,b]}"); r_block=("${(@)r_block[1,b]}")
+      r_since=("${(@)r_since[1,b]}"); r_arch=("${(@)r_arch[1,b]}")
+      r_gone=("${(@)r_gone[1,b]}")
+    else
+      r_id=(); r_topic=(); r_label=(); r_recap=(); r_state=(); r_cold=(); r_upd=()
+      r_new=(); r_prs=(); r_block=(); r_since=(); r_arch=(); r_gone=()
+    fi
+    NROWS=${#r_id}
+  fi
   [[ -z $FILTER ]] && return
   while IFS=$SEP read -r id live topic label upd line; do
     [[ -z $id ]] && continue
@@ -263,6 +286,11 @@ matches() {   # matches <row>
   # and a row whose label happens to share letters with the query is not one.
   (( SEARCH )) && { [[ -n ${HIT[${r_id[$1]:-}]:-} ]] }  && return 0
   (( SEARCH )) && return 1
+  name_matches $1
+}
+
+name_matches() {   # name_matches <row>
+  [[ -z $FILTER ]] && return 0
   local q=${FILTER:l} c n pat="*"
   for (( n=1; n<=${#q}; n++ )); do
     c=${q[n]}
@@ -304,6 +332,16 @@ restore_row() {   # restore_row <cc id> -> RESTORED, nonzero means it stayed rem
   refresh_now
   note "brought back"
   return 0
+}
+
+named_count() {   # -> NAMED, rows the query finds by name
+  local i
+  NAMED=0
+  for (( i=1; i<=NROWS; i++ )); do
+    [[ ${r_gone[i]:-0} == 1 ]] && continue
+    [[ -z ${r_id[i]:-} ]] && continue
+    name_matches $i && (( NAMED++ ))
+  done
 }
 
 # Keeps the cursor on something the filter still shows.
@@ -413,7 +451,10 @@ build() {
 
   if [[ -n $FILTER ]]; then
     if (( SEARCH )); then
-      add text "  ${SEARCH_ICON} searching what was said" "" $C_TOPIC 0
+      local smsg="  ${SEARCH_ICON} searching what was said"
+      (( AUTO_SEARCH )) && smsg="  ${SEARCH_ICON} no name matched — searching what was said"
+      (( ${#smsg} >= COLUMNS )) && smsg="  ${SEARCH_ICON} searching what was said"
+      add text "$smsg" "" $C_TOPIC 0
     else
       add text "  filtering everything" "" $C_TOPIC 0
     fi
@@ -529,7 +570,7 @@ build() {
     if (( SEARCH )); then
       add text "  nothing said about \"${FILTER}\"" "" "$C_FAINT" 0
     else
-      local miss="  nothing matches \"${FILTER}\"" tip="  (ctrl-g searches inside)"
+      local miss="  nothing matches \"${FILTER}\"" tip="  (keep typing to search inside)"
       if (( ${#miss} + ${#tip} < COLUMNS )); then
         add text "${miss}${tip}" "" "$C_FAINT" 0
       else
@@ -1046,8 +1087,14 @@ enter_new() {
 
 # Type to narrow, enter to land on it. Nothing is started until you land: the
 # filter only moves the cursor, and the right pane follows as it always does.
+# One prompt, two ways of matching. `/` finds a conversation by name as you type;
+# when the query names nothing, it searches what was said instead, on the pause
+# in typing a search needs anyway. Deleting back to something that does name a
+# conversation returns to names, so the escalation is never a trap. ctrl-g still
+# forces either mode for the times a name matches but the words you want are
+# inside it.
 filter_mode() {
-  local k seq last="" pending=0
+  local k seq last="" pending=0 auto=0
   FILTER=""; SEARCH=0; SQUERY=""; HIT=()
   while :; do
     # Only a changed query re-ranks. Snapping on every pass through the loop
@@ -1058,10 +1105,18 @@ filter_mode() {
       (( SEARCH )) || { [[ -n $FILTER ]] && snap_match }
       last=$FILTER
     fi
+    # Short queries are left to names: two letters match most of the index, and
+    # the answer would be a wall of hits rather than the conversation you meant.
+    named_count
+    if (( SEARCH && auto && NAMED > 0 )); then
+      SEARCH=0; auto=0; AUTO_SEARCH=0; pending=0; HIT=(); SQUERY=""; load; snap_match
+    elif (( ! SEARCH && NAMED == 0 && ${#FILTER} >= 3 )); then
+      SEARCH=1; auto=1; AUTO_SEARCH=1; pending=1
+    fi
     build; draw
     local hint="  enter opens  ·  ctrl-n/p next  ·  ctrl-g searches inside  ·  esc cancels"
     (( SEARCH )) && hint="  enter opens  ·  ctrl-n/p next  ·  ctrl-g back to names  ·  esc cancels"
-    (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  ctrl-g searches inside  ·  esc cancels"
+    (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  ctrl-n/p next  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  enter opens  ·  esc cancels"
     (( ${#hint} >= COLUMNS )) && hint="  esc cancels"
     # A footer that reaches the final cell leaves the terminal in pending wrap,
@@ -1107,6 +1162,9 @@ filter_mode() {
         fi
         break ;;
       $'\x07')
+        # Asked for by hand, so it sticks: auto=0 keeps the name count from
+        # switching the mode back underneath you.
+        auto=0; AUTO_SEARCH=0
         if (( SEARCH )); then
           SEARCH=0; HIT=(); SQUERY=""; pending=0
           # Dropping the injected removed rows means rebuilding the list, which
