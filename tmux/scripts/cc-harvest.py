@@ -10,7 +10,7 @@ scan is done.
   cc-harvest.py status                  refresh PR state from GitHub
   cc-harvest.py text <reg>              extract what was said, for searching
 """
-import json, os, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 
 HOME = os.path.expanduser("~")
 COCKPIT = os.path.join(HOME, ".claude", "cockpit")
@@ -338,8 +338,18 @@ def transcripts(reg_dir):
                 continue
             proj = os.path.join(HOME, ".claude", "projects", cwd.replace("/", "-"))
             path = os.path.join(proj, sid + ".jsonl")
-            if os.path.exists(path):
-                yield sid, path
+            if not os.path.exists(path):
+                # Entries written before `cwd` was recorded carry none, and a
+                # conversation resumed elsewhere no longer matches the folder
+                # its slug names. The transcript is still findable by session
+                # id, and without this 18 of 80 conversations were silently
+                # absent from search rather than reported missing.
+                hits = glob.glob(os.path.join(HOME, ".claude", "projects",
+                                              "*", sid + ".jsonl"))
+                if not hits:
+                    continue
+                path = hits[0]
+            yield sid, path
 
 
 def text_index(reg_dir):
