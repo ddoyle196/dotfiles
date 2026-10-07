@@ -99,8 +99,19 @@ C_MAG=$'\e[38;2;138;97;213m'
 
 typeset -A ICON FG SNAME
 # One family, one optical weight: mixing a solid diamond with a hairline
-# triangle made the column read as noise rather than a scale.
-ICON=( answer "●" running "◐" pickup "○" waiting "◌" done "✓" dead "▪" empty "" )
+# triangle made the column read as noise rather than a scale. The filled circle
+# is U+2B24 rather than U+25CF because most fonts draw U+25CF at a noticeably
+# smaller radius than the hollow and half circles beside it, which left the one
+# state that means "answer this" as the faintest mark in the column.
+ICON=( answer "⬤" running "◐" pickup "○" waiting "◌" done "✓" dead "▪" empty "" )
+# The running icon turned: a quarter turn every SPIN_EVERY, so "it is working"
+# reads from across the room without having to compare against a frame you no
+# longer remember. Same glyph family as the rest of the column, so the list does
+# not grow a second visual language just to say one thing.
+SPIN=( "◐" "◓" "◑" "◒" )
+SPIN_EVERY=0.2
+SPIN_FRAME=1
+SPIN_AT=0
 FG=(   answer $C_RED running $C_YEL pickup $C_BLU waiting $C_MUT done $C_GRN dead $C_FAINT empty $C_FAINT )
 SNAME=( answer "answer this" running "running" pickup "pick this up" \
         waiting "waiting on someone" done "finished" dead "process gone" \
@@ -429,6 +440,7 @@ add() {
 
 build() {
   L_kind=(); L_a=(); L_b=(); L_fg=(); L_row=(); L_c=(); L_vis=(); ROWLINE=()
+  SPIN_AT_LINE=(); SPIN_PRE=(); SPIN_POST=()
   local l badges badge_w b mk lb inner=$(( COLUMNS - 9 )) lw=$(( COLUMNS - 12 ))
   (( inner < 16 )) && inner=16
   (( lw < 12 )) && lw=12
@@ -528,8 +540,18 @@ build() {
       add head "     ${C_FAINT}nothing here yet — n starts a conversation" "" "$C_FAINT" "$i" "" 47
       continue
     fi
-    add head "  ${markc}${mark}${dim}${ICON[$st]:-○}${labc} ${lab}" "$tag" "$dim" "$i" "$AGE" \
+    # A parked conversation cannot be running, whatever its last classification
+    # said, so it never spins: three rows have been frozen on "running" since
+    # the reaper took them, and an animation would have made that a lie.
+    local gi=${ICON[$st]:-○} spins=0
+    [[ $st == running && $r_cold[i] != 1 ]] && { gi=$SPIN[$SPIN_FRAME]; spins=1 }
+    add head "  ${markc}${mark}${dim}${gi}${labc} ${lab}" "$tag" "$dim" "$i" "$AGE" \
         $(( 5 + ${#lab} ))
+    # Where the turning glyph landed, so advancing a frame is a character swap
+    # on one line rather than rebuilding every row five times a second.
+    (( spins )) && { SPIN_AT_LINE+=(${#L_kind})
+                     SPIN_PRE+=("  ${markc}${mark}${dim}")
+                     SPIN_POST+=("${labc} ${lab}") }
     # The line the query was found on is what you are looking for, so in search
     # mode it takes the recap's place rather than competing with it for the row.
     local sub=$r_recap[i] subfg=$recap_fg
@@ -954,6 +976,21 @@ sweep_tick() {
   else                          note "filed ${filed} finished — v shows them"; fi
 }
 
+# Only spin while something is actually working: an idle cockpit keeps its long
+# wait and costs nothing, and the diff renderer means a turning icon rewrites one
+# character per running row rather than repainting the list.
+spin_tick() {
+  (( ${#SPIN_AT_LINE} )) || return
+  (( EPOCHREALTIME - SPIN_AT < SPIN_EVERY )) && return
+  SPIN_AT=$EPOCHREALTIME
+  SPIN_FRAME=$(( SPIN_FRAME % ${#SPIN} + 1 ))
+  local n
+  for (( n=1; n<=${#SPIN_AT_LINE}; n++ )); do
+    L_a[$SPIN_AT_LINE[n]]="${SPIN_PRE[n]}${SPIN[$SPIN_FRAME]}${SPIN_POST[n]}"
+  done
+  draw
+}
+
 # Following puts a conversation on screen as you scroll, which is not reading
 # it. Only a conversation you have left up for a few seconds counts.
 mark_seen_tick() {
@@ -1210,11 +1247,13 @@ MSG=""
 load; build; DIRTY=0; draw
 
 STAMP=0
+POLLED_AT=0
 while true; do
   key=""
   # A short wait while the pane owes the cursor a conversation, so following
   # feels immediate; a long one otherwise, so an idle cockpit stays cheap.
   waitfor=1
+  (( ${#SPIN_AT_LINE} )) && waitfor=$SPIN_EVERY
   (( FOLLOW && NROWS )) && [[ "${r_id[$CUR]}:${r_cold[$CUR]}" != $SHOWN ]] && waitfor=0.04
   read -s -t $waitfor -k1 key
   if [[ -z $key ]]; then
@@ -1223,6 +1262,13 @@ while true; do
     mark_seen_tick
     reap_tick
     sweep_tick
+    spin_tick
+    # Both checks below fork `stat`, and the loop now wakes five times a second
+    # to turn the running icon (twenty-five while the pane owes the cursor a
+    # conversation). Polling the filesystem at that rate costs more than the
+    # animation does; once a second is as fast as either needs to be seen.
+    if (( EPOCHREALTIME - POLLED_AT < 1 )); then continue; fi
+    POLLED_AT=$EPOCHREALTIME
     # Wait for the file to stop changing and to parse before re-exec'ing it.
     # Reloading mid-write ran a half-written script, which left the panel
     # spewing into the pane instead of drawing.
