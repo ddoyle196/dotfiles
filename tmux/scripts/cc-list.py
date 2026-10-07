@@ -153,6 +153,14 @@ for name in sorted(os.listdir(REG)):
         rec["updated_at"] = cached.get("updated_at", 0)
         dirty = True
 
+    # Filing is for threads that are over. One that has spoken since it was
+    # filed plainly is not, and nothing used to undo the sweep's verdict, so a
+    # conversation worked on all day stayed pinned to the bottom of the list.
+    if rec.get("archived_at", 0) and \
+            rec.get("updated_at", 0) > rec.get("archived_at", 0):
+        rec["archived_at"] = 0
+        dirty = True
+
     state = rec.get("state") or ""
     # A conversation you are blocked on is not yours to act on, whatever the
     # transcript's last line sounded like. The explicit mark outranks the
