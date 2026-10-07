@@ -42,7 +42,7 @@ the LAST MESSAGE decides most of it.
 
 Reply with exactly two lines, nothing before or after:
 
-STATE: one of answer, pickup, waiting, done, running
+STATE: one of answer, pickup, waiting, done
   answer  = the LAST MESSAGE puts an explicit, unanswered question or choice to
             the person. There is a question mark aimed at them, or a direct ask
             such as "should I", "do you want", "which one", "confirm", "let me
@@ -59,7 +59,6 @@ STATE: one of answer, pickup, waiting, done, running
             working conversation that is just a checkpoint, and the person will
             usually reply with the next thing. Prefer pickup unless the person
             has actually closed the thread.
-  running = the assistant is mid-task right now
 RECAP: one sentence, max 20 words, plain non-technical English, naming the next
 step. If nothing is left to do, say so plainly. No markdown, no quotes.
 ' "$context" "$final")
@@ -76,8 +75,12 @@ recap=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*RECAP:[[:space:]]*//p' \
   | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
 
 case "$state" in
-  answer|pickup|waiting|done|running) ;;
-  *) state="pickup" ;;   # unparseable: assume it is yours, never hide it
+  answer|pickup|waiting|done) ;;
+  # Unparseable, or the dropped "running": assume it is yours, never hide it.
+  # This hook runs at Stop, so the assistant has by definition just finished and
+  # nothing here can be mid-task. A stored "running" was wrong when written and
+  # nothing ever cleared it, leaving rows frozen on it for days.
+  *) state="pickup" ;;
 esac
 
 # "Someone asked you something" is visible in the text, so decide it in the text

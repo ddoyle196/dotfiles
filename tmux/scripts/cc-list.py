@@ -3,9 +3,10 @@
 Reads three blocks on stdin (AGENTS / PS / PANES) so the shell pays for one
 python start instead of a jq per field per conversation.
 """
-import json, os, sys, time
+import glob, json, os, sys, time
 
 REG, IDX = sys.argv[1], sys.argv[2]
+HOME = os.path.expanduser("~")
 COCKPIT = os.path.dirname(REG.rstrip("/"))
 TOPICS = sys.argv[3] if len(sys.argv) > 3 else ""
 
@@ -64,6 +65,7 @@ def pr_badges(tid):
     return out
 
 
+BUSY_QUIET = 120     # a busy agent silent this long is only holding background work
 ASK_FRESH_DAYS = 2   # past this an unanswered ask cools to pickup
 STARTUP_GRACE = 90   # seconds a session may hold a name with no Claude yet
 blocks, cur = {"AGENTS": [], "PS": [], "PANES": []}, None
@@ -109,6 +111,21 @@ def owner(root):
             cur = parent.get(cur)
             hops += 1
     return None
+
+
+def spoke_at(rec, sid):
+    """When this conversation last appended to its transcript."""
+    cwd = (rec.get("cwd") or "").replace("/", "-")
+    paths = [os.path.join(HOME, ".claude", "projects", cwd, sid + ".jsonl")] if cwd else []
+    # Entries written before `cwd` was recorded, and conversations resumed
+    # somewhere else, are still findable by session id.
+    paths += glob.glob(os.path.join(HOME, ".claude", "projects", "*", sid + ".jsonl"))
+    for p in paths:
+        try:
+            return os.path.getmtime(p)
+        except OSError:
+            continue
+    return 0
 
 
 def load(path):
@@ -162,6 +179,11 @@ for name in sorted(os.listdir(REG)):
         dirty = True
 
     state = rec.get("state") or ""
+    # Running is a live fact, never a stored one. Only the "is it busy right
+    # now" check below may set it, so a conversation stops looking busy the
+    # moment it stops being busy, rather than whenever it next happens to speak.
+    if state == "running":
+        state = "pickup"
     # A conversation you are blocked on is not yours to act on, whatever the
     # transcript's last line sounded like. The explicit mark outranks the
     # classifier, which is the point of setting it by hand.
@@ -197,7 +219,14 @@ for name in sorted(os.listdir(REG)):
             pass
         elif by_pid[cpid].get("waitingFor"):
             state = "answer"
-        elif by_pid[cpid].get("status") == "busy":
+        elif by_pid[cpid].get("status") == "busy" and \
+                time.time() - spoke_at(rec, sid) < BUSY_QUIET:
+            # "busy" also covers a conversation sitting idle at its prompt with
+            # a background shell still running, which is why rows stayed lit for
+            # hours with nothing happening. The transcript is the record of what
+            # Claude actually produced, so recent writes are the real test. The
+            # window is generous because one long tool call appends nothing
+            # until it returns.
             state = "running"
     if not state:
         state = "pickup"
