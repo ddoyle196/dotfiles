@@ -114,17 +114,26 @@ def owner(root):
 
 
 def spoke_at(rec, sid):
-    """When this conversation last appended to its transcript."""
+    """When this conversation, or any subagent it started, last wrote anything."""
     cwd = (rec.get("cwd") or "").replace("/", "-")
     paths = [os.path.join(HOME, ".claude", "projects", cwd, sid + ".jsonl")] if cwd else []
     # Entries written before `cwd` was recorded, and conversations resumed
     # somewhere else, are still findable by session id.
     paths += glob.glob(os.path.join(HOME, ".claude", "projects", "*", sid + ".jsonl"))
     for p in paths:
-        try:
-            return os.path.getmtime(p)
-        except OSError:
+        if not os.path.exists(p):
             continue
+        # A conversation running subagents goes quiet in its own transcript
+        # for minutes while they work in theirs, beside it. Counting only the
+        # parent made it flip in and out of "running" as it waited on them.
+        newest = os.path.getmtime(p)
+        for sub in glob.glob(os.path.join(p[:-len(".jsonl")], "**", "*.jsonl"),
+                             recursive=True):
+            try:
+                newest = max(newest, os.path.getmtime(sub))
+            except OSError:
+                pass
+        return newest
     return 0
 
 
