@@ -51,8 +51,10 @@ STATE: one of answer, pickup, waiting, done
             decision is not a question. When in doubt, choose pickup.
   pickup  = the default. Work sits with the person to continue, but nothing
             is being asked of them right now
-  waiting = unfinished, but the next move belongs to another person or team
-            named in the conversation
+  waiting = unfinished, but the next move belongs to another PERSON or team
+            named in the conversation. Subagents the assistant started,
+            background jobs or running commands are not someone else: work
+            the assistant started and is waiting on is pickup, not waiting.
   done    = the thread itself is over. The person signed off, or said the work
             is complete and asked for nothing further. Be reluctant here.
             An assistant reporting that it finished a task is NOT done: in a
