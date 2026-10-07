@@ -103,13 +103,12 @@ typeset -A ICON FG SNAME
 # is U+2B24 rather than U+25CF because most fonts draw U+25CF at a noticeably
 # smaller radius than the hollow and half circles beside it, which left the one
 # state that means "answer this" as the faintest mark in the column.
-ICON=( answer "⬤" running "◐" pickup "○" waiting "◌" done "✓" dead "▪" empty "" )
-# The running icon turned: a quarter turn every SPIN_EVERY, so "it is working"
-# reads from across the room without having to compare against a frame you no
-# longer remember. Same glyph family as the rest of the column, so the list does
-# not grow a second visual language just to say one thing.
-SPIN=( "◐" "◓" "◑" "◒" )
-SPIN_EVERY=0.2
+ICON=( answer "⬤" running "⠋" pickup "○" waiting "·" done "✓" dead "▪" empty "" )
+# The running icon spins: the braille spinner every CLI installer uses, so
+# "it is working" reads from across the room. A frame is one character swapped
+# in place on the rows that spin, so a fast spinner stays cheap.
+SPIN=( ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏ )
+SPIN_EVERY=0.1
 SPIN_FRAME=1
 SPIN_AT=0
 FG=(   answer $C_RED running $C_YEL pickup $C_BLU waiting $C_MUT done $C_GRN dead $C_FAINT empty $C_FAINT )
