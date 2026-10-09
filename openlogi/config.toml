@@ -94,6 +94,7 @@ BottomRight = { action = "MouseForward" }
 Bottom = { action = "MouseBack" }
 BottomLeft = { action = "Undo" }
 Left = { action = "Redo" }
+TopLeft = { action = { OpenApplication = { path = "/System/Library/CoreServices/Finder.app", display_name = "Finder" } } }
 
 [devices."serial:2613apbcf448".smartshift]
 mode = "ratchet"
