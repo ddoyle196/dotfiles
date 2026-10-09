@@ -294,6 +294,76 @@ register_cockpit_branch_hook() {
       }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
 }
 
+# OpenLogi drives the MX Master 4 in place of Logi Options+. Linked file by file,
+# because ~/.config/openlogi also holds the agent's socket, locks and backups.
+install_openlogi() {
+  local os="$1" dir="$HOME/.config/openlogi"
+
+  case "$os" in
+    macos)
+      if [[ -d /Applications/OpenLogi.app ]]; then
+        log "OpenLogi already installed"
+      else
+        log "Installing OpenLogi..."
+        # The aprilnea tap follows GitHub releases. The official cask lags, and
+        # the version it held at first install could not open the Actions Ring.
+        brew install --cask aprilnea/tap/openlogi@latest
+      fi
+      ;;
+    linux)
+      command -v openlogi &>/dev/null ||
+        warn "OpenLogi not installed: https://github.com/AprilNEA/OpenLogi#linux"
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  backup_and_link "$DOTFILES_DIR/openlogi/config.toml" "$dir/config.toml"
+  backup_and_link "$DOTFILES_DIR/openlogi/scripts/screenshot-hovered-window.sh" \
+    "$dir/scripts/screenshot-hovered-window.sh"
+
+  if [[ "$os" == "macos" ]]; then
+    build_thumbwheel_key "$dir/bin"
+    disable_logi_options_plus
+  fi
+}
+
+# Compiled per machine rather than committed: a binary built elsewhere would be
+# quarantined and is tied to the architecture it was built on.
+build_thumbwheel_key() {
+  local out="$1/thumbwheel-key"
+  command -v clang &>/dev/null ||
+    { warn "clang not found (xcode-select --install); thumb wheel will do nothing"; return; }
+  mkdir -p "$1"
+  log "Building thumb wheel helper: $out"
+  clang -O2 -framework ApplicationServices -o "$out" \
+    "$DOTFILES_DIR/openlogi/scripts/thumbwheel-key.c" ||
+    warn "Could not build the thumb wheel helper"
+}
+
+# Logi Options+ and OpenLogi fight over the mouse's HID++ channel, and Logi's
+# launchd jobs restart it the moment it is quit, so turning it off means
+# disabling those jobs. Left installed: `launchctl enable` on both brings it back.
+disable_logi_options_plus() {
+  local agent="gui/$(id -u)/com.logi.cp-dev-mgr"
+  local updater="system/com.logi.optionsplus.updater"
+
+  [[ -f /Library/LaunchAgents/com.logi.optionsplus.plist ]] || return 0
+
+  log "Disabling Logi Options+ so OpenLogi can own the mouse"
+  osascript -e 'quit app "logioptionsplus"' &>/dev/null || true
+  launchctl disable "$agent"
+  launchctl bootout "$agent" &>/dev/null || true
+
+  if [[ -t 0 ]]; then
+    sudo launchctl disable "$updater"
+    sudo launchctl bootout "$updater" &>/dev/null || true
+  else
+    warn "Run: sudo launchctl disable $updater && sudo launchctl bootout $updater"
+  fi
+}
+
 install_tpm() {
   local tpm_dir="$HOME/.tmux/plugins/tpm"
   if [[ ! -d "$tpm_dir" ]]; then
@@ -331,6 +401,7 @@ main() {
   else
     backup_and_link "$DOTFILES_DIR/tmux.conf" "$HOME/.tmux.conf"
     install_cockpit
+    install_openlogi "$os"
     install_tpm
     # A running server is still on the old config; without this the new
     # bindings only appear after a restart, which reads as setup not working.

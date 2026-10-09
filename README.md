@@ -60,11 +60,39 @@ Remove symlinks and restore original configs:
 dotfiles/
 ├── nvim/           # Neovim config (LazyVim)
 ├── tmux.conf       # Tmux config
+├── openlogi/       # OpenLogi (Logitech mouse) config and helpers
 ├── setup.sh        # Unix setup script
 ├── setup.ps1       # Windows PowerShell setup
 ├── cleanup.sh      # Unix cleanup script
 └── cleanup.ps1     # Windows PowerShell cleanup
 ```
+
+## OpenLogi (MX Master 4)
+
+[OpenLogi](https://github.com/AprilNEA/OpenLogi) replaces Logi Options+: open
+source, local, and on macOS and Linux. `setup.sh` installs it on macOS, links
+`openlogi/config.toml` into `~/.config/openlogi/`, builds the thumb wheel helper,
+and disables Logi Options+ (the two fight over the mouse, and Logi relaunches
+itself when quit). Logi stays installed; `cleanup.sh` prints how to turn it back on.
+
+| Control | Does |
+|---|---|
+| Back / Forward | Return / Ctrl+Cmd+O |
+| Gesture button | screenshot tool in window mode (hover highlights, click saves) |
+| Button under the wheel | toggle ratchet / free-spin |
+| Haptic panel | Actions Ring: cut, copy, paste, forward, back, undo, redo |
+| Thumb wheel up / down | Mission Control / App Exposé, and either one closes them |
+
+The thumb wheel runs `scripts/thumbwheel-key.c`, compiled per machine, instead of
+OpenLogi's own shortcut action: that action leaves out the fn flag macOS needs for
+Ctrl+arrow hotkeys, and `osascript` launched from OpenLogi takes ~2.5s per call.
+
+After setup, give **OpenLogi Agent** Input Monitoring, Accessibility and Screen
+Recording in System Settings → Privacy & Security, then quit and reopen OpenLogi.
+The config is keyed to the mouse's serial, so the same mouse works on any machine.
+
+The thumb wheel helper and the screenshot script are macOS-only. On Linux the
+config links but those two bindings do nothing yet.
 
 ## Post-Setup
 
