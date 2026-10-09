@@ -1,2 +1,4 @@
 __pycache__/
 .playwright-mcp/
+openlogi/*.lock
+openlogi/.*.lock

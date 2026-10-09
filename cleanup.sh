@@ -66,6 +66,14 @@ main() {
 
   if [[ "$os" != "windows-bash" ]]; then
     remove_link "$HOME/.tmux.conf"
+    remove_link "$HOME/.config/openlogi/config.toml"
+    remove_link "$HOME/.config/openlogi/scripts/screenshot-hovered-window.sh"
+  fi
+
+  if [[ "$os" == "macos" ]]; then
+    log "Note: Logi Options+ stays disabled. To bring it back:"
+    log "  launchctl enable gui/$(id -u)/com.logi.cp-dev-mgr"
+    log "  sudo launchctl enable system/com.logi.optionsplus.updater"
   fi
 
   log "Cleanup complete!"
