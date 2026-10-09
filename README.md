@@ -80,7 +80,7 @@ itself when quit). Logi stays installed; `cleanup.sh` prints how to turn it back
 | Back / Forward | Return / Ctrl+Cmd+O |
 | Gesture button | screenshot tool in window mode (hover highlights, click saves) |
 | Button under the wheel | toggle ratchet / free-spin |
-| Haptic panel | Actions Ring: cut, copy, paste, forward, back, undo, redo |
+| Haptic panel | Actions Ring: Finder (top left), cut, copy, paste, forward, back, undo, redo |
 | Thumb wheel up / down | Mission Control / App Exposé, and either one closes them |
 
 The thumb wheel runs `scripts/thumbwheel-key.c`, compiled per machine, instead of
