@@ -129,6 +129,10 @@ install_cockpit() {
   done
   [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
     backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
+  if [[ -d "$DOTFILES_DIR/cockpit-web" ]]; then
+    backup_and_link "$DOTFILES_DIR/cockpit-web" "$HOME/.tmux/scripts/cockpit-web"
+    install_cockpit_web_agent
+  fi
 
   record_cockpit_dir
   record_pr_owners
@@ -140,6 +144,65 @@ install_cockpit() {
   for f in jq python3 tmux claude; do
     command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
   done
+}
+
+# The browser cockpit at http://localhost:7477, kept running by a login agent so
+# the page is simply there. launchd starts agents with a bare system PATH, and
+# the server shells out to tmux, jq, zsh and claude, so the PATH is built from
+# wherever this machine keeps them.
+install_cockpit_web_agent() {
+  if [[ "$(uname -s)" != Darwin ]]; then
+    log "No login agent here: run 'cockpit web' to start the web cockpit"
+    return
+  fi
+  local label="com.ddoyle.cockpit-web" py c d path="/usr/bin:/bin:/usr/sbin:/sbin"
+  local plist="$HOME/Library/LaunchAgents/$label.plist" domain="gui/$(id -u)"
+  # The real interpreter, not a pyenv shim: a shim follows whatever version is
+  # global at the time, so the agent would change under a later pyenv switch.
+  if ! py=$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))' 2>/dev/null); then
+    warn "python3 not found: web cockpit agent not installed"
+    return
+  fi
+  for c in python3 tmux jq zsh claude gh; do
+    d=$(dirname "$(command -v "$c" 2>/dev/null || echo /usr/bin/x)")
+    [[ ":$path:" == *":$d:"* ]] || path="$d:$path"
+  done
+  mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+  cat > "$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$py</string>
+    <string>$HOME/.tmux/scripts/cockpit-web/server.py</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>$path</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/cockpit-web.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/cockpit-web.log</string>
+</dict>
+</plist>
+EOF
+  # bootstrap refuses a label that is already loaded, so a re-run of setup has
+  # to unload the old one first to pick up a changed plist.
+  # bootout returns before the label is gone, and bootstrapping it meanwhile
+  # fails with error 5.
+  if launchctl bootout "$domain/$label" 2>/dev/null; then
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      launchctl print "$domain/$label" >/dev/null 2>&1 || break
+      sleep 0.2
+    done
+  fi
+  if launchctl bootstrap "$domain" "$plist"; then
+    log "Web cockpit agent loaded: http://localhost:7477"
+  else
+    warn "Could not load $plist; 'cockpit web' starts the server by hand"
+  fi
 }
 
 # Which directory new conversations start in. Recorded in a file the scripts

@@ -40,7 +40,7 @@ TRANSCRIPT
 Do not continue that conversation. You are classifying it from the outside, and
 the LAST MESSAGE decides most of it.
 
-Reply with exactly two lines, nothing before or after:
+Reply with exactly three lines, nothing before or after:
 
 STATE: one of answer, pickup, waiting, done
   answer  = the LAST MESSAGE puts an explicit, unanswered question or choice to
@@ -63,6 +63,9 @@ STATE: one of answer, pickup, waiting, done
             has actually closed the thread.
 RECAP: one sentence, max 20 words, plain non-technical English, naming the next
 step. If nothing is left to do, say so plainly. No markdown, no quotes.
+WAITING_ON: the person or team the conversation names as having the next move,
+  in a few words. Subagents, background jobs and running commands do not count.
+  Write none if no one else holds it.
 ' "$context" "$final")
 
 raw=$(printf '%s' "$prompt" | CC_RECAP_CHILD=1 claude -p \
@@ -75,6 +78,8 @@ state=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*STATE:[[:space:]]*//p' \
   | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z' | head -c 12)
 recap=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*RECAP:[[:space:]]*//p' \
   | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
+who=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*WAITING_ON:[[:space:]]*//p' \
+  | head -1 | tr -d '"*`' | sed "s/^[_' ]*//; s/[_'[:space:].]*\$//")
 
 case "$state" in
   answer|pickup|waiting|done) ;;
@@ -110,8 +115,39 @@ else
 fi
 [ -z "$recap" ] && exit 0
 
+# The overseer shows these beside the row, so each is kept only when the final
+# state agrees with it: a name is offered only on a waiting row, and the ask
+# only on a row that is asking. A wrong name there is one click from becoming
+# a block, which is why the text rules above get the last word, not the model.
+# $close comes from a transcript flattened to one line per turn, so list
+# options run straight into the question there. The last reply is read again
+# with its line breaks, and the same walk-back past list lines finds the line
+# that does the asking; the question is its last sentence that asks.
+question=""
+if [ "$state" = answer ]; then
+  last_raw=$(tail -500 "$transcript" | jq -c 'select(.type=="assistant")
+    | .message.content
+    | if type=="string" then . else ([.[]? | select(.type=="text") | .text] | join("\n")) end
+    | select(length > 0)' 2>/dev/null | tail -1 | jq -r '.' 2>/dev/null)
+  qline=$(printf '%s\n' "$last_raw" | sed 's/[[:space:]]*$//' | grep -v '^$' \
+    | grep -vE '^[[:space:]]*([-*+>|]|[0-9]+[.)]|`{3})' | tail -1)
+  [ -n "$qline" ] || qline=$close
+  question=$(printf '%s' "$qline" | jq -Rrs --arg re "$ask_re" '
+    sub("^ASSISTANT: "; "") | gsub("\\*\\*|__"; "")
+    | [splits("(?<=[.?!])\\s+")] | map(select(length > 0))
+    | ([.[] | select(test($re; "i"))] | last) // last // ""')
+fi
+case "$(printf '%s' "$who" | tr '[:upper:]' '[:lower:]')" in
+  ''|none|no\ one|nobody|n/a) who="" ;;
+esac
+[ "$state" = waiting ] || who=""
+
 lines=$(wc -l < "$transcript" | tr -d ' ')
 jq -n --arg s "$sid" --arg r "$recap" --arg st "$state" --arg t "$transcript" \
+      --arg q "$question" --arg w "$who" \
       --argjson l "$lines" --argjson u "$(date +%s)" \
-  '{session_id:$s, recap:$r, state:$st, transcript:$t, lines:$l, updated_at:$u}' \
+  '{session_id:$s, recap:$r, state:$st, transcript:$t, lines:$l, updated_at:$u,
+    question:($q | gsub("^\\s+|\\s+$"; "")
+              | if length > 200 then "..." + .[-197:] else . end),
+    waiting_suggest:($w | .[:60])}' \
   > "$out.tmp" && mv "$out.tmp" "$out"

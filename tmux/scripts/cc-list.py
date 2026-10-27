@@ -178,6 +178,11 @@ for name in sorted(os.listdir(REG)):
         rec["state"] = cached.get("state", "")
         rec["updated_at"] = cached.get("updated_at", 0)
         dirty = True
+    # Read straight from the cache rather than stored in the registry: they only
+    # mean something beside the recap they were written with, and a cache older
+    # than the registry's recap would pair a stale question with a newer summary.
+    facts = cached if cached and \
+        cached.get("updated_at", 0) >= rec.get("updated_at", 0) else {}
 
     # Filing is for threads that are over. One that has spoken since it was
     # filed plainly is not, and nothing used to undo the sweep's verdict, so a
@@ -228,6 +233,9 @@ for name in sorted(os.listdir(REG)):
             pass
         elif by_pid[cpid].get("waitingFor"):
             state = "answer"
+            # The prompt on screen came after the last recap, so the recap's
+            # question is one he has already moved past.
+            facts = {}
         elif by_pid[cpid].get("status") == "busy" and \
                 time.time() - spoke_at(rec, sid) < BUSY_QUIET:
             # "busy" also covers a conversation sitting idle at its prompt with
@@ -267,6 +275,8 @@ for name in sorted(os.listdir(REG)):
         "updated_at": rec.get("updated_at") or rec.get("created", 0),
         "created": rec.get("created", 0),
         "cold": root is None,
+        "question": facts.get("question") or "",
+        "waiting_suggest": facts.get("waiting_suggest") or "",
     })
 
 # A declared topic with nothing in it still gets a row, so it holds its place
@@ -284,6 +294,7 @@ if TOPICS:
             "updated_at": 0, "created": 0, "cold": True,
             "unread": False, "prs": [], "archived": False,
             "blocked_on": "", "blocked_since": 0, "wake_at": 0,
+            "question": "", "waiting_suggest": "",
         })
 
 json.dump(out, sys.stdout)

@@ -1,0 +1,1122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>Cockpit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap">
+<style>
+:root {
+  --bg: #100F0F; --surface: #1C1B1A; --raised: #282726; --line: #343331; --line-2: #403E3C;
+  --fg: #CECDC3; --fg-2: #878580; --fg-3: #575653;
+  --red: #D14D41; --orange: #DA702C; --yellow: #D0A215; --green: #879A39;
+  --cyan: #3AA99F; --blue: #4385BE; --purple: #8B7EC8; --magenta: #CE5D97;
+  /* Small text in a status colour, nudged to reach 4.5:1 on every surface. */
+  --red-text: #E06C5F; --green-text: #879A39; --yellow-text: #D0A215; --blue-text: #5B96C9;
+  --on-accent: #100F0F;
+  /* Same hues and slot order as the terminal panel, so a topic is the same
+     colour in both places. Slots 8-15 are the muted twins. */
+  --t0: #3AA99F; --t1: #DA702C; --t2: #8B7EC8; --t3: #CE5D97;
+  --t4: #3A99BE; --t5: #A49A3C; --t6: #5DAF82; --t7: #BE826E;
+  --t8: #5C9891; --t9: #B47951; --t10: #8981A7; --t11: #AE6F8C;
+  --t12: #5C90A2; --t13: #96905A; --t14: #6F9C81; --t15: #A58376;
+  --sans: "Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #FFFCF0; --surface: #F2F0E5; --raised: #E6E4D9; --line: #DAD8CE; --line-2: #CECDC3;
+    --fg: #100F0F; --fg-2: #6F6E69; --fg-3: #9F9D96;
+    --red: #AF3029; --orange: #BC5215; --yellow: #AD8301; --green: #66800B;
+    --cyan: #24837B; --blue: #205EA6; --purple: #5E409D; --magenta: #A02F6F;
+    --red-text: #AF3029; --green-text: #56700A; --yellow-text: #755800; --blue-text: #205EA6;
+    --on-accent: #FFFCF0;
+    --t0: #22655F; --t1: #82431A; --t2: #534B78; --t3: #7B375A;
+    --t4: #225B72; --t5: #625C24; --t6: #37694E; --t7: #724E42;
+    --t8: #417069; --t9: #855839; --t10: #645D7B; --t11: #804F66;
+    --t12: #416976; --t13: #6E6940; --t14: #50725D; --t15: #796055;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 15px/1.45 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 3px; }
+.mono { font-family: var(--mono); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.app { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100vh; }
+.app.has-panel { grid-template-columns: minmax(0, 1fr) minmax(400px, 46%); }
+.home { padding: 18px 16px 64px; max-width: 820px; width: 100%; margin: 0 auto; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 18px; }
+.word { font: 700 17px/1 var(--mono); letter-spacing: .02em; margin: 0; }
+.need {
+  font: 600 13px/1 var(--mono); color: #100F0F; background: var(--yellow);
+  border: 0; padding: 5px 9px; border-radius: 999px;
+}
+.quiet { color: var(--fg-2); font: 13px/1.2 var(--mono); }
+.counts { color: var(--fg-2); font: 13px/1.2 var(--mono); }
+.offline { color: var(--orange); font: 13px/1.2 var(--mono); }
+.top-end { margin-left: auto; display: flex; gap: 8px; align-items: center; flex: 1 1 0; justify-content: flex-end; }
+.note { color: var(--fg-2); font: 13px/1.2 var(--mono); }
+.note:empty { display: none; }
+.search {
+  width: 0; max-width: 100%; min-width: 120px; flex: 0 1 220px; padding: 6px 10px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line); outline-offset: 0;
+}
+.search::placeholder { color: var(--fg-2); }
+.btn {
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius);
+  padding: 5px 11px; font-size: 14px; min-height: 32px; white-space: nowrap;
+}
+.btn:hover { background: var(--raised); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: var(--on-accent); }
+.btn.ghost { background: none; border-color: transparent; color: var(--fg-2); }
+.btn.ghost:hover { color: var(--fg); background: var(--raised); }
+.x { background: none; border: 0; color: var(--fg-2); width: 32px; height: 32px; border-radius: var(--radius); font-size: 18px; line-height: 1; }
+.x:hover { color: var(--fg); background: var(--raised); }
+
+/* sections */
+.sec { margin-top: 22px; }
+.sec-h { font: 600 12px/1 var(--mono); letter-spacing: .08em; color: var(--fg-2); margin: 0 0 8px; text-transform: uppercase; }
+.away {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 8px 10px 14px; display: flex; gap: 8px; align-items: flex-start;
+}
+.away ul { list-style: none; margin: 6px 0 0; padding: 0; flex: 1; min-width: 0; }
+.away li button {
+  background: none; border: 0; padding: 3px 0; text-align: left; width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block;
+}
+.away li button:hover { color: var(--blue); }
+.away .sec-h { margin: 2px 0 0; }
+.away-body { flex: 1; min-width: 0; }
+
+/* rows */
+.rows { display: flex; flex-direction: column; gap: 2px; }
+.row {
+  display: grid; grid-template-columns: 1.4ch 16px minmax(0, 1fr) auto; column-gap: 10px;
+  align-items: start; width: 100%; text-align: left; padding: 8px 10px;
+  background: transparent; border: 0; border-radius: var(--radius);
+  box-shadow: inset 3px 0 0 transparent;
+  --jf: 0;
+  background-color: color-mix(in srgb, var(--cyan) calc(var(--jf) * 16%), transparent);
+  transition: background-color 30s linear;
+}
+.row:hover { background-color: var(--surface); transition: none; }
+.row.sel { background-color: var(--raised); transition: none; }
+.row.edge-red { box-shadow: inset 3px 0 0 var(--red); }
+.row.edge-orange { box-shadow: inset 3px 0 0 var(--orange); }
+.row .key { font: 12px/22px var(--mono); color: var(--fg-3); }
+.row .mk { margin-top: 3px; }
+.row .main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.row .l1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.row .label { font-weight: 600; overflow-wrap: anywhere; }
+.row .topic { font: 13px/1.3 var(--mono); color: var(--tc, var(--fg-2)); }
+.row .snip { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.row .age { font: 12px/22px var(--mono); color: var(--fg-2); white-space: nowrap; }
+.row.compact { grid-template-columns: 16px minmax(0, 1fr) auto; padding: 5px 10px; }
+.row.compact .main { flex-direction: row; align-items: baseline; gap: 10px; }
+.row.compact .label { font-weight: 400; flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.compact .snip { flex: 1; }
+.row.filed { opacity: .6; }
+.row .tag { font: 12px/1.3 var(--mono); color: var(--fg-2); }
+.row .tag.red { color: var(--red-text); }
+.row .tag.blue { color: var(--blue-text); }
+.row .tag.orange { color: var(--orange); }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font: 12px/1 var(--mono); padding: 3px 6px; border-radius: 4px;
+  border: 1px solid currentColor; color: var(--fg-2); white-space: nowrap;
+}
+/* Home rows stay grey; only a PR that needs something is coloured there. The
+   panel's Linked list shows every status in colour. */
+.chip.pending { color: var(--yellow-text); }
+.chip.fail { color: var(--red-text); }
+.linked .chip.merged { color: var(--purple); }
+.linked .chip.open { color: var(--blue-text); }
+.linked .chip.approved { color: var(--green-text); }
+.empty-note { color: var(--fg-2); padding: 6px 10px; font-size: 14px; }
+
+/* state marks: one 16px box each so the column lines up whatever the state */
+.mk { width: 16px; height: 16px; display: inline-grid; place-items: center; flex: none; }
+.mk.answer::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+.mk.pickup::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--blue); box-sizing: border-box; }
+.mk.waiting::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--fg-2); }
+.mk.done::before {
+  content: ""; width: 4px; height: 8px; margin-top: -3px;
+  border: solid var(--green); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.mk.running { font: 15px/1 var(--mono); color: var(--yellow); }
+
+.more {
+  background: none; border: 0; color: var(--fg-2); padding: 6px 10px; font: 14px/1.3 var(--mono);
+  display: flex; gap: 8px; align-items: center; border-radius: var(--radius);
+}
+.more:hover { color: var(--fg); background: var(--surface); }
+.more .chev { display: inline-block; transition: transform .15s; }
+.more[aria-expanded="true"] .chev { transform: rotate(90deg); }
+.group { margin-top: 12px; }
+.group-h { font: 600 13px/1 var(--mono); color: var(--tc, var(--fg-2)); margin: 0 0 4px 10px; }
+.group-h .n { color: var(--fg-2); font-weight: 400; margin-left: 6px; }
+.filed-toggle { margin-top: 14px; }
+
+/* panel */
+.panel {
+  position: sticky; top: 0; height: 100vh; height: 100dvh;
+  display: flex; flex-direction: column; min-width: 0;
+  border-left: 1px solid var(--line); background: var(--bg);
+}
+.panel[hidden] { display: none; }
+.p-head { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+.p-meta { display: flex; align-items: center; gap: 10px; font: 13px/1.2 var(--mono); color: var(--fg-2); }
+.p-meta .topic { color: var(--tc, var(--fg-2)); }
+.p-meta .x { margin-left: auto; margin-right: -8px; }
+.p-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 0 10px; }
+.p-title h2:focus { outline: none; }
+.p-title h2 { margin: 0; font-size: 20px; line-height: 1.25; overflow-wrap: anywhere; }
+.pill { font: 600 12px/1 var(--mono); padding: 4px 8px; border-radius: 999px; border: 1px solid currentColor; color: var(--fg-2); white-space: nowrap; }
+.pill.answer { color: var(--red-text); }
+.pill.running { color: var(--yellow-text); }
+.pill.pickup { color: var(--blue-text); }
+.pill.done { color: var(--green-text); }
+.p-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+.inline-form input {
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius);
+  padding: 5px 8px; min-height: 32px;
+}
+.inline-form[hidden] { display: none; }
+.inline-form input.who { width: 160px; }
+.inline-form input.days { width: 4.5em; }
+.msg { font-size: 14px; margin-top: 8px; color: var(--fg-2); min-height: 0; }
+.msg:empty { display: none; }
+.msg.err { color: var(--red-text); }
+.p-body { flex: 1; overflow-y: auto; padding: 4px 16px 24px; overscroll-behavior: contain; }
+.banner {
+  margin-top: 14px; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px;
+}
+.banner span { flex: 1; min-width: 12em; }
+.blk { margin-top: 20px; }
+.blk h3 { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); margin: 0 0 8px; }
+.stands { margin: 0; font-size: 16px; }
+.stands .asked { color: var(--red-text); font: 600 12px/1 var(--mono); display: block; margin-bottom: 4px; }
+details.reply summary { cursor: pointer; font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); padding: 4px 0; }
+details.reply summary .when { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 6px; }
+.reply-text {
+  margin-top: 8px; padding: 10px 12px; background: var(--surface); border-radius: var(--radius);
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.5 var(--sans); max-height: 26em; overflow-y: auto;
+}
+.linked { display: flex; flex-direction: column; gap: 6px; }
+.linked .chip { align-self: flex-start; padding: 4px 8px; }
+.tl { list-style: none; margin: 0; padding: 0; position: relative; }
+.tl li { position: relative; padding: 0 0 12px 22px; font-size: 14px; }
+.tl li::before {
+  content: ""; position: absolute; left: 4px; top: 6px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--fg-3);
+}
+.tl li::after { content: ""; position: absolute; left: 7.5px; top: 18px; bottom: 0; width: 1px; background: var(--line-2); }
+.tl li:last-child::after { display: none; }
+.tl li.recap::before { background: var(--cyan); }
+.tl li.pr::before { background: var(--purple); }
+.tl li.plan::before { background: var(--green); }
+.tl li.compact { padding-left: 0; color: var(--fg-2); font: 12px/1 var(--mono); display: flex; align-items: center; gap: 8px; padding-bottom: 14px; }
+.tl li.compact::before { position: static; flex: 1; height: 0; width: auto; border-radius: 0; background: none; border-top: 1px dashed var(--line-2); }
+.tl li.compact::after { content: ""; position: static; flex: 1; height: 0; width: auto; background: none; border-top: 1px dashed var(--line-2); }
+.tl .when { font: 12px/1.3 var(--mono); color: var(--fg-2); display: block; }
+.tl .n { color: var(--fg-2); font: 12px var(--mono); margin-left: 6px; }
+.tl li.pr .what { color: var(--purple); font-family: var(--mono); }
+.composer { border-top: 1px solid var(--line); padding: 10px 16px 14px; background: var(--bg); }
+.composer textarea {
+  width: 100%; min-height: 64px; max-height: 40vh; resize: vertical; display: block;
+  background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--radius); padding: 8px 10px;
+}
+.composer-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.composer-row .hint { color: var(--fg-2); font: 12px var(--mono); margin-right: auto; }
+.composer-row .msg { margin: 0; }
+
+/* tidy */
+.scrim { position: fixed; inset: 0; background: rgba(16, 15, 15, .55); z-index: 30; display: grid; place-items: start center; padding: 8vh 16px 16px; overflow-y: auto; }
+.scrim[hidden] { display: none; }
+.dialog { background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; width: min(560px, 100%); padding: 16px; }
+.dialog-h { display: flex; align-items: center; justify-content: space-between; }
+.dialog-h h2 { margin: 0; font-size: 18px; }
+.dialog fieldset { border: 0; padding: 0; margin: 16px 0 0; }
+.dialog legend { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-2); margin-bottom: 8px; padding: 0; }
+.dialog label { display: flex; gap: 10px; padding: 6px 4px; align-items: flex-start; border-radius: var(--radius); cursor: pointer; }
+.dialog label:hover { background: var(--surface); }
+.dialog input[type=checkbox] { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--blue); flex: none; }
+.dialog .sub { display: block; color: var(--fg-2); font-size: 14px; }
+.dialog-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.dialog-foot .msg { margin: 0 auto 0 0; }
+
+@media (max-width: 759px) {
+  .app.has-panel { grid-template-columns: minmax(0, 1fr); }
+  .panel { position: fixed; inset: 0; z-index: 20; border-left: 0; }
+  html.sheet-open, html.sheet-open body { overflow: hidden; }
+  .top-end { margin-left: 0; width: 100%; }
+  .search { flex: 1; width: auto; }
+  .row.compact .main { flex-wrap: wrap; row-gap: 2px; }
+  .row.compact .label { max-width: 100%; }
+  .row.compact .snip { flex: 1 1 100%; order: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row, .more .chev { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <main class="home" id="home">
+    <header class="top">
+      <h1 class="word">Cockpit</h1>
+      <span id="needSlot"></span>
+      <span class="counts" id="counts"></span>
+      <span class="note" id="note" role="status"></span>
+      <span class="offline" id="offline" role="status" hidden>offline, retrying</span>
+      <div class="top-end">
+        <label class="sr" for="search">Search conversations</label>
+        <input class="search" id="search" type="search" placeholder="Search  /" autocomplete="off" spellcheck="false">
+        <button class="btn" id="tidyBtn" type="button" hidden>Tidy</button>
+      </div>
+    </header>
+    <div id="awaySlot"></div>
+    <section class="sec" aria-labelledby="wsH">
+      <h2 class="sec-h" id="wsH">Working set</h2>
+      <div class="rows" id="ws"></div>
+    </section>
+    <section class="sec" id="lostSec" aria-labelledby="lostH" hidden>
+      <h2 class="sec-h" id="lostH">Lost track of</h2>
+      <div class="rows" id="lost"></div>
+    </section>
+    <section class="sec" id="allSec">
+      <button class="more" id="moreBtn" type="button" aria-expanded="false" aria-controls="all"><span class="chev" aria-hidden="true">&#x203A;</span><span id="moreText">Everything else</span></button>
+      <div id="all" hidden></div>
+    </section>
+  </main>
+
+  <aside class="panel" id="panel" aria-labelledby="pTitle" hidden>
+    <div class="p-head">
+      <div class="p-meta"><span class="topic" id="pTopic"></span><span id="pAge"></span>
+        <button class="x" id="pClose" type="button" aria-label="Close conversation">&#x2715;</button></div>
+      <div class="p-title"><h2 id="pTitle" tabindex="-1"></h2><span class="pill" id="pPill"></span></div>
+      <div class="p-actions">
+        <button class="btn" id="aResume" type="button">Resume</button>
+        <button class="btn" id="aWait" type="button" aria-expanded="false" aria-controls="waitForm">Mark waiting</button>
+        <button class="btn" id="aFile" type="button">File</button>
+      </div>
+      <form class="inline-form" id="waitForm" hidden>
+        <label for="waitWho">Waiting on</label>
+        <input class="who" id="waitWho" autocomplete="off" required>
+        <label for="waitDays">check back in</label>
+        <input class="days" id="waitDays" type="number" min="0" max="365" value="3" inputmode="numeric">
+        <span>days</span>
+        <button class="btn primary" type="submit">Save</button>
+        <button class="btn ghost" type="button" id="waitCancel">Cancel</button>
+      </form>
+      <div class="msg" id="pMsg" role="status"></div>
+    </div>
+    <div class="p-body" id="pBody"></div>
+    <form class="composer" id="composer">
+      <label class="sr" for="draft">Reply</label>
+      <textarea id="draft" placeholder="Reply to this conversation" rows="3"></textarea>
+      <div class="composer-row">
+        <span class="hint">Enter sends, Shift+Enter new line</span>
+        <span class="msg" id="sendMsg" role="status"></span>
+        <button class="btn primary" type="submit" id="sendBtn">Send</button>
+      </div>
+    </form>
+  </aside>
+</div>
+
+<div class="scrim" id="tidyScrim" hidden>
+  <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="tidyH">
+    <div class="dialog-h"><h2 id="tidyH">Tidy up</h2><button class="x" id="tidyClose" type="button" aria-label="Close">&#x2715;</button></div>
+    <div id="tidyBody"></div>
+    <div class="dialog-foot">
+      <span class="msg" id="tidyMsg" role="status"></span>
+      <button class="btn ghost" type="button" id="tidyCancel">Cancel</button>
+      <button class="btn primary" type="button" id="tidyApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script nonce="__COCKPIT_NONCE__">
+"use strict";
+const TOKEN = "__COCKPIT_TOKEN__";
+const POLL_MS = 4000;
+const TIDY_MS = 60000;
+const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+const MARK_WORDS = { answer: "needs you", running: "working", pickup: "parked", waiting: "waiting", done: "done" };
+
+const $ = (id) => document.getElementById(id);
+const ui = {
+  state: null, tidy: null, q: "", sel: 0, open: null, detail: null,
+  expanded: false, showFiled: false, away: [], lastKey: "", drafts: new Map(),
+  offline: false, opener: null, awayGone: "",
+};
+
+function store(key, val) {
+  try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; }
+  return null;
+}
+ui.expanded = store("cockpit.expanded") === "1";
+ui.showFiled = store("cockpit.showFiled") === "1";
+
+async function api(path, body) {
+  const opt = { headers: { "X-Cockpit-Token": TOKEN }, cache: "no-store" };
+  if (body !== undefined) {
+    opt.method = "POST";
+    opt.headers["Content-Type"] = "application/json";
+    opt.body = JSON.stringify(body);
+  }
+  const r = await fetch(path, opt);
+  let data = null;
+  try { data = await r.json(); } catch (e) { data = null; }
+  if (!r.ok || (data && data.ok === false)) {
+    throw new Error((data && data.error) || `The server answered ${r.status}.`);
+  }
+  return data;
+}
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const now = () => Date.now() / 1000;
+function age(at) {
+  if (!at) return "";
+  const s = Math.max(0, now() - at);
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  if (s < 86400 * 14) return `${Math.floor(s / 86400)}d`;
+  return `${Math.floor(s / (86400 * 7))}w`;
+}
+function when(at) {
+  if (!at) return "";
+  const d = new Date(at * 1000);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return sameDay ? t : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${t}`;
+}
+
+/* Topic colours: a port of the terminal panel's assignment (hash of the name,
+   probe to a free slot, live topics first) so both views agree. */
+let topicSlots = new Map();
+function hashSlot(name, n) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h += name.charCodeAt(i) * (i + 1);
+  return h % n;
+}
+function assignTopicColors(st) {
+  const n = 16;
+  const live = [...new Set(st.convs.filter((c) => c.id && c.topic).map((c) => c.topic))].sort();
+  const all = [...new Set([...st.convs.map((c) => c.topic), ...(st.topics || []).map((t) => t.name)].filter(Boolean))].sort();
+  const used = new Set();
+  const out = new Map();
+  for (const t of [...live, ...all]) {
+    if (out.has(t)) continue;
+    const h = hashSlot(t, n);
+    let slot = h;
+    for (let k = 0; k < n; k++) { slot = (h + k) % n; if (!used.has(slot)) break; }
+    used.add(slot);
+    out.set(t, slot);
+  }
+  topicSlots = out;
+}
+const tc = (topic) => (topicSlots.has(topic) ? `--tc: var(--t${topicSlots.get(topic)})` : "");
+
+const convById = (id) => (ui.state ? ui.state.convs.find((c) => c.id === id) : null);
+function markOf(c) {
+  if (c.running || c.state === "running") return "running";
+  if (c.blocked_on) return "waiting";
+  return c.state;
+}
+function markHtml(c) {
+  const m = markOf(c);
+  const word = c.blocked_on ? `waiting on ${c.blocked_on}` : (MARK_WORDS[m] || m || "");
+  if (m === "running") return `<span class="mk running" aria-hidden="true"><span class="spin">${SPIN[0]}</span></span><span class="sr">${esc(word)}</span>`;
+  return `<span class="mk ${esc(m)}" aria-hidden="true"></span><span class="sr">${esc(word)}</span>`;
+}
+function chipsHtml(prs) {
+  if (!prs || !prs.length) return "";
+  // Merged, open and draft PRs need nothing from him; a count says they exist.
+  const loud = prs.filter((p) => p.mark === "fail" || p.mark === "pending");
+  const quiet = prs.length - loud.length;
+  const more = quiet ? `<span class="chip" title="${esc(prs.filter((p) => !loud.includes(p)).map((p) => `${p.label} ${p.mark}`).join(", "))}">${loud.length ? "+" : ""}${quiet} PR${quiet === 1 ? "" : "s"}</span>` : "";
+  prs = loud;
+  return `<span class="chips">${prs.map((p) => `<span class="chip ${esc(p.mark)}" title="${esc(p.label)} ${esc(p.mark)}">${esc(p.label)}</span>`).join("")}${more}</span>`;
+}
+const snippet = (c) => c.question || c.recap || "";
+function edgeOf(c) {
+  if (c.state === "answer" && !c.blocked_on && !c.archived) return "edge-red";
+  if ((c.prs || []).some((p) => p.mark === "fail")) return "edge-orange";
+  return "";
+}
+function jfStrength(c) {
+  if (!c.just_finished) return 0;
+  return Math.max(0, Math.min(1, 1 - (now() - (c.updated_at || 0)) / 300)).toFixed(2);
+}
+function matches(c) {
+  if (!ui.q) return true;
+  const hay = [c.label, c.topic, c.recap, c.question, c.blocked_on, c.id, ...(c.prs || []).map((p) => p.label)].join(" ").toLowerCase();
+  return ui.q.split(/\s+/).every((w) => hay.includes(w));
+}
+
+function wsRowHtml(c, i, isSel) {
+  const cls = ["row", edgeOf(c), isSel ? "sel" : ""].filter(Boolean).join(" ");
+  const snip = c.blocked_on ? `waiting on ${c.blocked_on}. ${snippet(c)}` : snippet(c);
+  return `<button type="button" class="${cls}" data-id="${esc(c.id)}" style="--jf:${jfStrength(c)}" aria-keyshortcuts="${i + 1}">
+<span class="key" aria-hidden="true">${i + 1}</span>${markHtml(c)}
+<span class="main"><span class="l1"><span class="label">${esc(c.label)}</span><span class="topic" style="${tc(c.topic)}">${esc(c.topic)}</span>${chipsHtml(c.prs)}</span>
+<span class="snip">${esc(snip)}</span></span>
+<span class="age">${esc(age(c.updated_at))}</span></button>`;
+}
+function compactRowHtml(c, extra) {
+  const cls = ["row", "compact", edgeOf(c), c.archived ? "filed" : ""].filter(Boolean).join(" ");
+  return `<button type="button" class="${cls}" data-id="${esc(c.id)}" style="--jf:${jfStrength(c)}">
+${markHtml(c)}<span class="main"><span class="label">${esc(c.label)}</span>${extra || ""}<span class="snip">${esc(snippet(c))}</span>${chipsHtml(c.prs)}</span>
+<span class="age">${c.archived ? "filed " : ""}${esc(age(c.updated_at))}</span></button>`;
+}
+
+const KIND_TAG = {
+  asked: ["asked", "red"], failed_check: ["check failed", "red"],
+  waiting_long: ["waiting", "orange"], decision: ["decision", "blue"],
+  review: ["review", "blue"],
+};
+
+function visibleWorkingSet() {
+  const st = ui.state;
+  return st.working_set.map(convById).filter((c) => c && matches(c));
+}
+
+function render() {
+  const st = ui.state;
+  if (!st) return;
+  const key = JSON.stringify([st.counts, st.working_set, st.attention, st.convs, st.topics, ui.q, ui.sel, ui.open,
+    ui.expanded, ui.showFiled, ui.away, ui.tidy, Math.floor(now() / 30)]);
+  if (key === ui.lastKey) return;
+  ui.lastKey = key;
+  const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
+  const focusedIn = focusedId ? document.activeElement.closest("#ws, #lost, #all, #awaySlot") : null;
+
+  renderHeader(st);
+  renderAway();
+  const ws = visibleWorkingSet();
+  if (ui.sel >= ws.length) ui.sel = Math.max(0, ws.length - 1);
+  $("ws").innerHTML = ws.length
+    ? ws.map((c, i) => wsRowHtml(c, i, i === ui.sel)).join("")
+    : `<p class="empty-note">${ui.q ? "No matches here." : "Nothing in the last two hours."}</p>`;
+  renderLost(st);
+  renderAll(st);
+
+  if (focusedIn) {
+    const again = document.querySelector(`#${focusedIn.id} [data-id="${CSS.escape(focusedId)}"]`);
+    if (again) again.focus({ preventScroll: true });
+  }
+  if (ui.open) renderPanelHead();
+}
+
+function renderHeader(st) {
+  const n = st.counts.need_you || 0;
+  $("needSlot").innerHTML = n > 0
+    ? `<button type="button" class="need" id="needBtn" title="Open the oldest one (n)">${n} need you</button>`
+    : `<span class="quiet">nothing needs you</span>`;
+  const parts = [["working", st.counts.working], ["waiting", st.counts.waiting], ["parked", st.counts.parked], ["done", st.counts.done]]
+    .filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`);
+  $("counts").textContent = parts.join(" · ");
+  const t = ui.tidy;
+  const tn = t ? t.probably_done.length + t.empty_topics.length + t.stale_decisions.length : 0;
+  $("tidyBtn").hidden = tn === 0;
+  $("tidyBtn").textContent = `Tidy (${tn})`;
+}
+
+function renderAway() {
+  // A working-set row already shows its own change just below, tinted.
+  const inWs = new Set(ui.state.working_set);
+  const items = ui.away.filter((a) => !inWs.has(a.id));
+  if (!items.length) { $("awaySlot").innerHTML = ""; return; }
+  $("awaySlot").innerHTML = `<section class="away sec" aria-labelledby="awayH"><div class="away-body">
+<h2 class="sec-h" id="awayH">While you were away</h2><ul>${items.slice(0, 3).map((a) =>
+    `<li><button type="button" data-id="${esc(a.id)}">${esc(a.what)}</button></li>`).join("")}</ul></div>
+<button type="button" class="x" id="awayClose" aria-label="Dismiss">&#x2715;</button></section>`;
+}
+
+function renderLost(st) {
+  const items = (st.attention || []).filter((a) => !st.working_set.includes(a.id)).slice(0, 3)
+    .map((a) => ({ a, c: convById(a.id) })).filter(({ c }) => c && matches(c));
+  $("lostSec").hidden = items.length === 0;
+  $("lost").innerHTML = items.map(({ a, c }) => {
+    const [word, tone] = KIND_TAG[a.kind] || [a.kind, ""];
+    const tag = `<span class="tag ${tone}">${esc(word)}</span>`;
+    return compactRowHtml({ ...c, prs: [], question: a.reason, recap: a.reason }, tag);
+  }).join("");
+}
+
+function renderAll(st) {
+  const inWs = new Set(st.working_set);
+  const rest = st.convs.filter((c) => c.id && !inWs.has(c.id));
+  const unfiled = rest.filter((c) => !c.archived);
+  const filed = rest.filter((c) => c.archived);
+  const expanded = ui.expanded || !!ui.q;
+  const matching = ui.q ? rest.filter((c) => (ui.showFiled || !c.archived) && matches(c)).length : unfiled.length;
+  $("moreText").textContent = ui.q ? `Everything else · ${matching} of ${unfiled.length}` : `Everything else · ${unfiled.length}`;
+  $("moreBtn").setAttribute("aria-expanded", String(expanded));
+  $("all").hidden = !expanded;
+  if (!expanded) { $("all").innerHTML = ""; return; }
+
+  const shown = rest.filter((c) => (ui.showFiled || !c.archived) && matches(c));
+  const byTopic = new Map();
+  for (const c of shown) {
+    const t = c.topic || "no topic";
+    if (!byTopic.has(t)) byTopic.set(t, []);
+    byTopic.get(t).push(c);
+  }
+  // Newest conversation first within a topic, by creation so rows never jump on activity.
+  const groups = [...byTopic.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  let html = groups.map(([t, cs]) => {
+    cs.sort((a, b) => (b.created || 0) - (a.created || 0) || a.id.localeCompare(b.id));
+    return `<div class="group" style="${tc(t)}"><h3 class="group-h">${esc(t)}<span class="n">${cs.length}</span></h3>
+<div class="rows">${cs.map((c) => compactRowHtml(c)).join("")}</div></div>`;
+  }).join("");
+  if (!groups.length) html = `<p class="empty-note">${ui.q ? "No matches." : "Nothing else."}</p>`;
+  if (filed.length) {
+    html += `<button type="button" class="more filed-toggle" id="filedBtn" aria-pressed="${ui.showFiled}">${ui.showFiled ? "Hide filed" : `Show filed (${filed.length})`}</button>`;
+  }
+  $("all").innerHTML = html;
+}
+
+/* spinner */
+let spinTimer = null;
+let spinIdx = 0;
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+function startSpinner() {
+  clearInterval(spinTimer);
+  if (reduceMotion.matches) return;
+  spinTimer = setInterval(() => {
+    spinIdx = (spinIdx + 1) % SPIN.length;
+    for (const el of document.querySelectorAll(".spin")) el.textContent = SPIN[spinIdx];
+  }, 100);
+}
+reduceMotion.addEventListener("change", startSpinner);
+
+/* polling */
+let pollTimer = null;
+async function poll() {
+  try {
+    const st = await api("/api/state");
+    ui.state = st;
+    if (ui.offline) { ui.offline = false; $("offline").hidden = true; }
+    const awayKey = JSON.stringify(st.since_away || []);
+    if (st.since_away && st.since_away.length && !ui.away.length && awayKey !== ui.awayGone) ui.away = st.since_away.slice(0, 3);
+    assignTopicColors(st);
+    render();
+    if (ui.open) maybeRefreshDetail();
+    return true;
+  } catch (e) {
+    ui.offline = true;
+    $("offline").hidden = false;
+    return false;
+  }
+}
+function schedule() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => { if (!document.hidden) await poll(); schedule(); }, POLL_MS);
+}
+async function refreshTidy() {
+  try { ui.tidy = await api("/api/tidy"); } catch (e) { ui.tidy = null; }
+  ui.lastKey = "";
+  render();
+}
+async function visit() { try { await api("/api/visit", {}); } catch (e) { /* next visit records it */ } }
+
+/* open conversation */
+/* Under 760px the panel covers the home page, so the home has to drop out of
+   the tab order and the panel becomes a modal sheet. */
+const narrow = window.matchMedia("(max-width: 759px)");
+function syncSheet() {
+  const sheet = !!ui.open && narrow.matches;
+  $("home").inert = sheet;
+  if (sheet) { $("panel").setAttribute("role", "dialog"); $("panel").setAttribute("aria-modal", "true"); }
+  else { $("panel").removeAttribute("role"); $("panel").removeAttribute("aria-modal"); }
+}
+narrow.addEventListener("change", syncSheet);
+
+function openConv(id, opener, opts) {
+  if (!id) return;
+  const changed = ui.open !== id;
+  if (changed && ui.open) ui.drafts.set(ui.open, $("draft").value);
+  ui.open = id;
+  ui.opener = opener || ui.opener;
+  $("panel").hidden = false;
+  $("app").classList.add("has-panel");
+  document.documentElement.classList.add("sheet-open");
+  syncSheet();
+  if (changed) {
+    ui.detail = null;
+    $("draft").value = ui.drafts.get(id) || "";
+    $("sendMsg").textContent = "";
+    $("pMsg").textContent = "";
+    closeWaitForm();
+    $("pBody").innerHTML = "";
+    $("pBody").scrollTop = 0;
+  }
+  try { history.replaceState(null, "", `#c=${encodeURIComponent(id)}`); } catch (e) { /* file:// and sandboxed frames */ }
+  renderPanelHead();
+  renderPanelBody();
+  $("pTitle").focus({ preventScroll: true });
+  loadDetail(id);
+  if (!opts || opts.seen !== false) markSeen(id);
+  ui.lastKey = "";
+  render();
+}
+function closePanel() {
+  if (!ui.open) return;
+  ui.drafts.set(ui.open, $("draft").value);
+  ui.open = null;
+  ui.detail = null;
+  $("panel").hidden = true;
+  $("app").classList.remove("has-panel");
+  document.documentElement.classList.remove("sheet-open");
+  syncSheet();
+  try { history.replaceState(null, "", location.pathname); } catch (e) { /* see openConv */ }
+  ui.lastKey = "";
+  render();
+  const back = ui.opener && ui.opener.dataset ? document.querySelector(`[data-id="${CSS.escape(ui.opener.dataset.id)}"]`) : null;
+  if (back) back.focus({ preventScroll: true });
+  ui.opener = null;
+}
+function markSeen(id) {
+  api(`/api/conv/${encodeURIComponent(id)}/seen`, {}).catch(() => {});
+}
+async function loadDetail(id) {
+  try {
+    const d = await api(`/api/conv/${encodeURIComponent(id)}`);
+    if (ui.open !== id) return;
+    ui.detail = d;
+    renderPanelBody();
+  } catch (e) {
+    if (ui.open !== id) return;
+    ui.detail = { error: e.message };
+    renderPanelBody();
+  }
+}
+function maybeRefreshDetail() {
+  const c = convById(ui.open);
+  if (!c || !ui.detail || ui.detail.error) { if (c) renderPanelBody(); return; }
+  if (c.updated_at !== ui.detail.updated_at || c.state !== ui.detail.state || c.blocked_on !== ui.detail.blocked_on
+    || c.archived !== ui.detail.archived || c.waiting_suggest !== ui.detail.waiting_suggest) {
+    loadDetail(ui.open);
+  }
+}
+const current = () => ({ ...(ui.detail && !ui.detail.error ? ui.detail : {}), ...(convById(ui.open) || {}) });
+
+function renderPanelHead() {
+  const c = current();
+  if (!c.id) return;
+  $("pTopic").textContent = c.topic || "";
+  $("pTopic").setAttribute("style", tc(c.topic));
+  $("pAge").textContent = c.updated_at ? `${age(c.updated_at)} ago`.replace("now ago", "just now") : "";
+  $("pTitle").textContent = c.label || c.id;
+  const m = markOf(c);
+  const pill = $("pPill");
+  pill.className = `pill ${c.archived ? "" : m}`;
+  pill.textContent = c.archived ? "filed" : c.blocked_on ? `waiting on ${c.blocked_on}` : (MARK_WORDS[m] || m);
+  $("aFile").textContent = c.archived ? "Unfile" : "File";
+  $("aResume").disabled = !!c.running;
+  $("aResume").textContent = c.running ? "Running" : "Resume";
+  document.title = c.label ? `${c.label} · Cockpit` : "Cockpit";
+}
+
+function renderPanelBody() {
+  const c = current();
+  if (!c.id) { $("pBody").innerHTML = `<p class="empty-note">This conversation is no longer listed.</p>`; return; }
+  const d = ui.detail;
+  const keepScroll = $("pBody").scrollTop;
+  const replyOpen = $("pBody").querySelector("details.reply");
+  // When it asked something, the question above is the point; the reply is
+  // background and starts folded.
+  const replyIsOpen = replyOpen ? replyOpen.open : !c.question;
+  let h = "";
+  if (c.blocked_on) {
+    const days = c.blocked_since ? Math.floor((now() - c.blocked_since) / 86400) : 0;
+    h += `<div class="banner"><span>Waiting on <strong>${esc(c.blocked_on)}</strong>${days ? ` for ${days} day${days === 1 ? "" : "s"}` : ""}.</span>
+<button type="button" class="btn" data-act="unblock">Unblock</button></div>`;
+  } else if (c.waiting_suggest && !c.archived) {
+    h += `<div class="banner"><span>Waiting on <strong>${esc(c.waiting_suggest)}</strong>?</span>
+<button type="button" class="btn" data-act="confirm-wait">Confirm</button></div>`;
+  }
+  const stand = c.question
+    ? `<p class="stands"><span class="asked">Asked you</span>${esc(c.question)}</p>`
+    : `<p class="stands">${esc(c.recap || "No recap yet.")}</p>`;
+  h += `<section class="blk"><h3>Where it stands</h3>${stand}</section>`;
+  if (!d) {
+    h += `<p class="empty-note">Loading the conversation…</p>`;
+  } else if (d.error) {
+    h += `<p class="msg err">${esc(d.error)}</p>`;
+  } else {
+    if (d.last_reply && d.last_reply.text) {
+      h += `<section class="blk"><details class="reply"${replyIsOpen ? " open" : ""}><summary>Latest reply<span class="when">${esc(when(d.last_reply.at))}</span></summary>
+<div class="reply-text">${esc(plainReply(d.last_reply.text))}</div></details></section>`;
+    }
+    if (c.prs && c.prs.length) {
+      h += `<section class="blk"><h3>Linked</h3><div class="linked">${c.prs.map((p) =>
+        `<span class="chip ${esc(p.mark)}">${esc(p.label)} · ${esc(p.mark)}</span>`).join("")}</div></section>`;
+    }
+    const cps = d.checkpoints || [];
+    if (cps.length) {
+      h += `<section class="blk"><h3>Where this went</h3><ol class="tl">${cps.map(cpHtml).join("")}</ol></section>`;
+    }
+  }
+  $("pBody").innerHTML = h;
+  $("pBody").scrollTop = keepScroll;
+}
+/* The reply is markdown written for a terminal; show it as plain prose. */
+function plainReply(text) {
+  return String(text || "")
+    .split("\n")
+    .filter((line) => !/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(line))
+    .map((line) => line.replace(/\*\*|`/g, "").replace(/^#{1,6}\s+/, ""))
+    .join("\n");
+}
+function cpHtml(cp) {
+  const n = cp.n > 1 ? `<span class="n">×${cp.n}</span>` : "";
+  if (cp.kind === "compact") return `<li class="compact"><span>context compacted ${esc(when(cp.at))}</span>${n}</li>`;
+  const text = cp.kind === "pr" ? `PR ${cp.text}` : cp.kind === "plan" ? (cp.text || "Plan approved") : cp.text;
+  return `<li class="${esc(cp.kind)}"><span class="when">${esc(when(cp.at))}</span><span class="what">${esc(text)}</span>${n}</li>`;
+}
+
+/* actions */
+function panelMsg(text, isErr) {
+  $("pMsg").textContent = text;
+  $("pMsg").classList.toggle("err", !!isErr);
+}
+async function act(path, body, okText, id = ui.open) {
+  try {
+    await api(`/api/conv/${encodeURIComponent(id)}/${path}`, body || {});
+    if (ui.open === id) panelMsg(okText, false);
+    else note(okText);
+    await poll();
+    if (ui.open === id) loadDetail(id);
+    refreshTidy();
+    return true;
+  } catch (e) {
+    if (ui.open === id) panelMsg(e.message, true);
+    else note(e.message);
+    return false;
+  }
+}
+let noteTimer = null;
+function note(text) {
+  $("note").textContent = text;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => { $("note").textContent = ""; }, 5000);
+}
+function openWaitForm() {
+  const c = current();
+  $("waitForm").hidden = false;
+  $("aWait").setAttribute("aria-expanded", "true");
+  $("waitWho").value = c.blocked_on || c.waiting_suggest || "";
+  $("waitWho").focus();
+}
+function closeWaitForm() {
+  $("waitForm").hidden = true;
+  $("aWait").setAttribute("aria-expanded", "false");
+}
+async function toggleFile(id) {
+  const c = id ? convById(id) : current();
+  if (!c || !c.id) return;
+  const what = c.archived ? "back in the list" : "filed";
+  const text = id ? `${c.label || c.id}: ${what}.` : `${what[0].toUpperCase()}${what.slice(1)}.`;
+  await act(c.archived ? "unfile" : "file", {}, text, c.id);
+}
+
+$("aResume").addEventListener("click", () => act("resume", {}, "Started."));
+$("aWait").addEventListener("click", () => ($("waitForm").hidden ? openWaitForm() : closeWaitForm()));
+$("waitCancel").addEventListener("click", closeWaitForm);
+$("aFile").addEventListener("click", () => toggleFile());
+$("pClose").addEventListener("click", closePanel);
+$("waitForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const who = $("waitWho").value.trim();
+  if (!who) { $("waitWho").focus(); return; }
+  const days = Math.max(0, Math.min(365, parseInt($("waitDays").value, 10) || 0));
+  if (await act("block", { who, days }, days ? `Waiting on ${who}, back in ${days} days.` : `Waiting on ${who}.`)) closeWaitForm();
+});
+$("pBody").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  if (b.dataset.act === "unblock") act("unblock", {}, "Unblocked.");
+  if (b.dataset.act === "confirm-wait") {
+    const who = current().waiting_suggest;
+    act("block", { who, days: 3 }, `Waiting on ${who}, back in 3 days.`);
+  }
+});
+
+/* composer */
+let sending = false;
+async function send() {
+  const id = ui.open;
+  const text = $("draft").value.trim();
+  if (!id || !text || sending) return;
+  sending = true;
+  $("sendBtn").disabled = true;
+  $("sendMsg").classList.remove("err");
+  $("sendMsg").textContent = "Sending…";
+  try {
+    await api(`/api/conv/${encodeURIComponent(id)}/send`, { text });
+    ui.drafts.delete(id);
+    if (ui.open === id) { $("draft").value = ""; $("sendMsg").textContent = "Sent"; }
+    await poll();
+    if (ui.open === id) loadDetail(id);
+  } catch (e) {
+    if (ui.open === id) { $("sendMsg").classList.add("err"); $("sendMsg").textContent = e.message; }
+  } finally {
+    sending = false;
+    $("sendBtn").disabled = false;
+  }
+}
+$("composer").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+$("draft").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
+});
+$("draft").addEventListener("input", () => { if ($("sendMsg").textContent === "Sent") $("sendMsg").textContent = ""; });
+
+/* tidy */
+function openTidy() {
+  const t = ui.tidy;
+  if (!t) return;
+  const item = (name, value, checked, title, sub) => `<label><input type="checkbox" name="${name}" value="${esc(value)}"${checked ? " checked" : ""}>
+<span><span>${esc(title)}</span>${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</span></label>`;
+  let h = "";
+  if (t.probably_done.length) {
+    h += `<fieldset><legend>Probably done</legend>${t.probably_done.map((p) => item("file", p.id, true, p.label, p.evidence)).join("")}</fieldset>`;
+  }
+  if (t.empty_topics.length) {
+    h += `<fieldset><legend>Empty topics</legend>${t.empty_topics.map((n) => item("drop", n, true, n, "no conversations, remove the topic")).join("")}</fieldset>`;
+  }
+  if (t.stale_decisions.length) {
+    h += `<fieldset><legend>Stale decisions</legend>${t.stale_decisions.map((s) =>
+      item("file", s.id, false, s.label, `${s.question} (${s.age_days} days)`)).join("")}</fieldset>`;
+  }
+  $("tidyBody").innerHTML = h;
+  $("tidyMsg").textContent = "";
+  $("tidyMsg").classList.remove("err");
+  $("tidyScrim").hidden = false;
+  updateTidyApply();
+  const first = $("tidyBody").querySelector("input");
+  (first || $("tidyClose")).focus();
+}
+function tidyPicks() {
+  const pick = (n) => [...$("tidyBody").querySelectorAll(`input[name=${n}]:checked`)].map((i) => i.value);
+  return { file: [...new Set(pick("file"))], drop_topics: pick("drop") };
+}
+function updateTidyApply() {
+  const p = tidyPicks();
+  const parts = [];
+  if (p.file.length) parts.push(`file ${p.file.length}`);
+  if (p.drop_topics.length) parts.push(`remove ${p.drop_topics.length} topic${p.drop_topics.length === 1 ? "" : "s"}`);
+  $("tidyApply").disabled = parts.length === 0;
+  $("tidyApply").textContent = parts.length ? parts.join(", ").replace(/^./, (s) => s.toUpperCase()) : "Apply";
+}
+function closeTidy() {
+  if ($("tidyScrim").hidden) return;
+  $("tidyScrim").hidden = true;
+  $("tidyBtn").focus();
+}
+$("tidyBtn").addEventListener("click", openTidy);
+$("tidyClose").addEventListener("click", closeTidy);
+$("tidyCancel").addEventListener("click", closeTidy);
+$("tidyScrim").addEventListener("click", (e) => { if (e.target === $("tidyScrim")) closeTidy(); });
+$("tidyBody").addEventListener("change", updateTidyApply);
+$("tidyApply").addEventListener("click", async () => {
+  const p = tidyPicks();
+  $("tidyApply").disabled = true;
+  try {
+    const r = await api("/api/tidy", p);
+    $("tidyScrim").hidden = true;
+    await poll();
+    await refreshTidy();
+    if (ui.open) panelMsg("", false);
+    $("tidyBtn").hidden ? $("search").focus() : $("tidyBtn").focus();
+    const done = [];
+    if (r.filed) done.push(`filed ${r.filed}`);
+    if (r.dropped) done.push(`removed ${r.dropped} topic${r.dropped === 1 ? "" : "s"}`);
+    if (done.length) note(`Tidied: ${done.join(", ")}.`);
+  } catch (e) {
+    $("tidyMsg").classList.add("err");
+    $("tidyMsg").textContent = e.message;
+    updateTidyApply();
+  }
+});
+$("tidyScrim").addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  const f = [...$("tidyScrim").querySelectorAll("button:not(:disabled), input")];
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+
+/* home interactions */
+document.getElementById("home").addEventListener("click", (e) => {
+  if (e.target.closest("#awayClose")) { ui.awayGone = JSON.stringify(ui.state.since_away || []); ui.away = []; ui.lastKey = ""; render(); $("search").focus(); return; }
+  if (e.target.closest("#needBtn")) { jumpNext(); return; }
+  if (e.target.closest("#filedBtn")) {
+    ui.showFiled = !ui.showFiled; store("cockpit.showFiled", ui.showFiled ? "1" : "0");
+    ui.lastKey = ""; render(); const b = $("filedBtn"); if (b) b.focus(); return;
+  }
+  const row = e.target.closest("[data-id]");
+  if (!row) return;
+  const wsRows = [...$("ws").querySelectorAll("[data-id]")];
+  const i = wsRows.indexOf(row);
+  if (i >= 0) ui.sel = i;
+  openConv(row.dataset.id, row);
+});
+$("moreBtn").addEventListener("click", () => {
+  ui.expanded = !ui.expanded;
+  store("cockpit.expanded", ui.expanded ? "1" : "0");
+  ui.lastKey = "";
+  render();
+});
+$("search").addEventListener("input", () => {
+  ui.q = $("search").value.trim().toLowerCase();
+  ui.sel = 0;
+  render();
+});
+$("search").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const first = document.querySelector("#ws [data-id], #lost [data-id], #all [data-id]");
+    if (first) openConv(first.dataset.id, first);
+  }
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if ($("search").value) { $("search").value = ""; ui.q = ""; render(); } else $("search").blur();
+  }
+  if (e.key === "ArrowDown") { e.preventDefault(); const f = document.querySelector("#ws [data-id]"); if (f) f.focus(); }
+});
+
+/* The pill counts asks, so it opens the oldest ask wherever it sits; only
+   with none left does it fall through to the other things he lost track of. */
+function jumpNext() {
+  const st = ui.state;
+  if (!st) return;
+  const ask = st.convs
+    .filter((c) => c.id && c.state === "answer" && !c.archived && !c.blocked_on)
+    .sort((a, b) => (a.updated_at || 0) - (b.updated_at || 0))[0];
+  const id = ask ? ask.id : ((st.attention || [])[0] || {}).id;
+  if (id) openConv(id);
+}
+function moveSel(d) {
+  const ws = visibleWorkingSet();
+  if (!ws.length) return;
+  ui.sel = Math.max(0, Math.min(ws.length - 1, ui.sel + d));
+  ui.lastKey = "";
+  render();
+  const row = $("ws").querySelectorAll("[data-id]")[ui.sel];
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+function selectedId() {
+  const ws = visibleWorkingSet();
+  return ws[ui.sel] ? ws[ui.sel].id : null;
+}
+/* The row with focus, wherever it is; the working-set selection otherwise. */
+function targetId(t) {
+  const row = t && t.closest ? t.closest("#home [data-id]") : null;
+  return row ? row.dataset.id : selectedId();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target;
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
+  if (e.key === "Escape") {
+    if (!$("tidyScrim").hidden) { e.preventDefault(); closeTidy(); return; }
+    if (!$("waitForm").hidden && (t.closest && t.closest("#waitForm"))) { e.preventDefault(); closeWaitForm(); $("aWait").focus(); return; }
+    if (t === $("search")) return;
+    if (ui.open) { e.preventDefault(); if (t === $("draft")) $("draft").blur(); closePanel(); }
+    return;
+  }
+  if (typing || !$("tidyScrim").hidden) return;
+  if (e.key === "/") { e.preventDefault(); $("search").focus(); $("search").select(); return; }
+  if (e.key === "j") { e.preventDefault(); moveSel(1); return; }
+  if (e.key === "k") { e.preventDefault(); moveSel(-1); return; }
+  if (/^[1-6]$/.test(e.key)) {
+    const ws = visibleWorkingSet();
+    const c = ws[Number(e.key) - 1];
+    if (c) { e.preventDefault(); ui.sel = Number(e.key) - 1; openConv(c.id, $("ws").querySelectorAll("[data-id]")[ui.sel]); }
+    return;
+  }
+  if (e.key === "n") { e.preventDefault(); jumpNext(); return; }
+  if (e.key === "Enter") {
+    if (t && t.closest && t.closest("button, a, summary, [data-act]")) return;
+    const id = selectedId();
+    if (id) { e.preventDefault(); openConv(id, $("ws").querySelectorAll("[data-id]")[ui.sel]); }
+    return;
+  }
+  if (e.key === "e") {
+    e.preventDefault();
+    if (ui.open) { toggleFile(); return; }
+    const id = targetId(t);
+    if (id) toggleFile(id);
+    return;
+  }
+  if (e.key === "w") {
+    e.preventDefault();
+    if (!ui.open) { const id = targetId(t); if (!id) return; openConv(id); }
+    openWaitForm(); return;
+  }
+});
+
+/* Leaving the tab records a visit, so on return the server already knows when
+   he last saw the page. Visit first: it works out how long he was away, and
+   the poll that follows carries the list measured from that moment. */
+async function arrive() {
+  await visit();
+  await poll();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { visit(); return; }
+  arrive();
+  schedule();
+});
+
+(async function boot() {
+  startSpinner();
+  await arrive();
+  refreshTidy();
+  setInterval(refreshTidy, TIDY_MS);
+  const m = location.hash.match(/^#c=(.+)$/);
+  const id = m ? decodeURIComponent(m[1]) : null;
+  if (id && ui.state && convById(id)) {
+    // Any site can open this link in a new tab; marking it seen waits for him
+    // to actually touch the page.
+    openConv(id, null, { seen: false });
+    const touched = () => {
+      removeEventListener("pointerdown", touched, true);
+      removeEventListener("keydown", touched, true);
+      if (ui.open === id) markSeen(id);
+    };
+    addEventListener("pointerdown", touched, true);
+    addEventListener("keydown", touched, true);
+  }
+  schedule();
+})();
+</script>
+</body>
+</html>
