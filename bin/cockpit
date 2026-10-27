@@ -2,9 +2,93 @@
 # The cockpit is a view over tmux-hosted conversations; this is just the door.
 #   --nvim    open the same registry in the nvim cockpit
 #   doctor    check this machine has everything the cockpit needs
+#   web       open the browser cockpit at http://localhost:7477, starting it if needed
+#   web stop  stop the browser cockpit
+WEB_URL="http://localhost:7477"
+WEB_LABEL="com.ddoyle.cockpit-web"
+WEB_PLIST="$HOME/Library/LaunchAgents/$WEB_LABEL.plist"
+WEB_LOG="$HOME/Library/Logs/cockpit-web.log"
+[ -d "$HOME/Library/Logs" ] || WEB_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/cockpit-web.log"
+
+# Anything can answer on the port; only the cockpit server names itself.
+web_up() {
+  curl -s -o /dev/null -D - -m 1 "$WEB_URL/" 2>/dev/null | grep -qi '^server: cockpit'
+}
+
+web_holder() {
+  for p in $(lsof -ti tcp:7477 -sTCP:LISTEN 2>/dev/null); do
+    ps -o command= -p "$p" 2>/dev/null
+  done | head -1
+}
+
+# The pid listening on the port, but only if it is the cockpit server: the port
+# is just a number, and stop must never kill whatever else took it.
+web_pid() {
+  for p in $(lsof -ti tcp:7477 -sTCP:LISTEN 2>/dev/null); do
+    ps -o command= -p "$p" 2>/dev/null | grep -q 'cockpit-web/server.py' && echo "$p"
+  done
+}
+
+start_by_hand() {
+  mkdir -p "$(dirname "$WEB_LOG")"
+  nohup python3 "$HOME/.tmux/scripts/cockpit-web/server.py" >>"$WEB_LOG" 2>&1 &
+}
+
+web_start() {
+  web_up && return 0
+  # Our own server holding the port without answering is hung, and a new one
+  # could never bind while it lives.
+  pids=$(web_pid)
+  [ -n "$pids" ] && { kill $pids 2>/dev/null; sleep 0.5; }
+  other=$(web_holder)
+  if [ -n "$other" ]; then
+    echo "Port 7477 is held by: $other" >&2
+    return 1
+  fi
+  # When setup installed the login agent, start through it so KeepAlive owns the
+  # process; a second copy started by hand would fight it for the port. Outside
+  # the login session (over ssh) launchctl cannot reach it, so fall back.
+  if [ -f "$WEB_PLIST" ] && command -v launchctl >/dev/null 2>&1; then
+    launchctl bootstrap "gui/$(id -u)" "$WEB_PLIST" 2>/dev/null ||
+      launchctl kickstart "gui/$(id -u)/$WEB_LABEL" 2>/dev/null ||
+      start_by_hand
+  else
+    start_by_hand
+  fi
+  i=0
+  while [ "$i" -lt 50 ]; do
+    web_up && return 0
+    sleep 0.1
+    i=$((i + 1))
+  done
+  echo "The web cockpit did not start. See $WEB_LOG." >&2
+  return 1
+}
+
+web_stop() {
+  # KeepAlive restarts a killed server at once, so a loaded agent has to be
+  # unloaded instead. It loads again at the next login or `cockpit web`.
+  if command -v launchctl >/dev/null 2>&1 &&
+      launchctl print "gui/$(id -u)/$WEB_LABEL" >/dev/null 2>&1; then
+    launchctl bootout "gui/$(id -u)/$WEB_LABEL"
+  fi
+  pids=$(web_pid)
+  [ -n "$pids" ] && { kill $pids; sleep 0.3; }
+  other=$(web_holder)
+  [ -n "$other" ] && { echo "Port 7477 is still held by: $other" >&2; return 1; }
+  echo "The web cockpit is stopped."
+}
+
 case "${1:-}" in
   --nvim) exec nvim -c Cockpit ;;
   doctor) ;;
+  web)
+    if [ "${2:-}" = stop ]; then web_stop; exit; fi
+    web_start || exit 1
+    if command -v open >/dev/null 2>&1 && [ "$(uname -s)" = Darwin ]; then open "$WEB_URL" || echo "$WEB_URL"
+    elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$WEB_URL" >/dev/null 2>&1 || echo "$WEB_URL"
+    else echo "$WEB_URL"; fi
+    exit ;;
   *)      exec "$HOME/.tmux/scripts/cc-cockpit.sh" ;;
 esac
 
@@ -52,6 +136,12 @@ if [ -r "$HOME/.tmux/scripts/lib/cc-dir.sh" ]; then
 else
   bad "cannot resolve the cockpit directory"
 fi
+
+echo "Web"
+held=$(web_holder)
+if web_up; then ok "the web cockpit answers on $WEB_URL"
+elif [ -n "$held" ]; then bad "port 7477 is held by something else: $held"
+else bad "nothing answers on $WEB_URL - run cockpit web"; fi
 
 echo "Tmux"
 grep -q 'cc-cockpit.sh' "$HOME/.tmux.conf" 2>/dev/null &&
