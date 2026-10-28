@@ -46,6 +46,14 @@ CLAUDE_ARGS=( --dangerously-skip-permissions )
 EFFORT="${COCKPIT_EFFORT:-medium}"
 [[ -n "$EFFORT" && "$EFFORT" != none ]] && CLAUDE_ARGS+=( --effort "$EFFORT" )
 (( ${COCKPIT_ULTRACODE:-1} )) && CLAUDE_ARGS+=( --settings '{"ultracode":true}' )
+# Helper agents that do not name a model of their own would otherwise run on
+# the conversation's model; most of them are searches and reads that a cheaper
+# one handles as well. COCKPIT_SUBAGENT_MODEL takes any model alias, or `none`
+# to let them inherit. `env` execs into claude, so the pane root stays claude.
+CLAUDE=( claude )
+SUBAGENT_MODEL="${COCKPIT_SUBAGENT_MODEL:-sonnet}"
+[[ -n "$SUBAGENT_MODEL" && "$SUBAGENT_MODEL" != none ]] &&
+  CLAUDE=( env CLAUDE_CODE_SUBAGENT_MODEL="$SUBAGENT_MODEL" claude )
 mkdir -p "$REG"
 [[ -f "$TOPICS" ]] || print '[]' > "$TOPICS"
 
@@ -132,7 +140,7 @@ new)
   _write "$id" created "$(date +%s)"
   _write "$id" cwd     "$(jq -Rn --arg v "$CWD" '$v')"
   [[ -n "$topic" ]] && _topic_declare "$topic"
-  tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" claude $CLAUDE_ARGS
+  tmux new-session -d -s "$id" -x 200 -y 50 -c "$CWD" $CLAUDE $CLAUDE_ARGS
   _quiet "$id"
   print "$id"
   ;;
@@ -174,9 +182,9 @@ start)  # bring a parked conversation back up, or no-op if it is already running
   sid=$(jq -r '.claude_session // ""' "$REG/$id.json")
   cwd=$(_cwd_for "$id"); proj=$(_proj_for "$cwd")
   if [[ -n "$sid" && -f "$proj/$sid.jsonl" ]]; then
-    cmd=( claude $CLAUDE_ARGS --resume "$sid" )
+    cmd=( $CLAUDE $CLAUDE_ARGS --resume "$sid" )
   else
-    cmd=( claude $CLAUDE_ARGS )
+    cmd=( $CLAUDE $CLAUDE_ARGS )
   fi
   if tmux has-session -t "=$id" 2>/dev/null; then
     # The husk case: the name survives but the process did not, so new-session
