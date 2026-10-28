@@ -145,6 +145,13 @@ own, keeping the label it already had. `/branch cars` names the tangent you are
 now in; unnamed, it becomes `… (branch)`. One gesture, two rows, and the train of
 thought you left is one `enter` away.
 
+Conversations start at `ultracode` effort: a cockpit conversation is one you walk
+away from, so it is worth the thorough answer rather than the fast one, and that
+level is also what lets an unattended conversation reach for the Workflow tool
+without being asked first. `COCKPIT_EFFORT` takes `low|medium|high|xhigh|max` to
+dial it back, or `none` to leave the effort alone, and `/effort <level>` changes
+one conversation.
+
 Each conversation remembers the directory it was started in and resumes there,
 so one cockpit can span several projects. `setup.sh` asks once where *new* ones
 should start and records it in `~/.claude/cockpit/dir`; `COCKPIT_DIR` in the
