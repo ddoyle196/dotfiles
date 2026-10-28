@@ -563,7 +563,7 @@ def pr_marks(c):
 
 
 def counts(convs):
-    n = {"need_you": 0, "working": 0, "waiting": 0, "parked": 0, "done": 0, "filed": 0,
+    n = {"need_you": 0, "working": 0, "waiting": 0, "idle": 0, "done": 0, "filed": 0,
          "total": len(convs)}
     for c in convs:
         s = c["state"]
@@ -578,7 +578,7 @@ def counts(convs):
         elif s in ("done", "dead"):
             n["done"] += 1
         else:
-            n["parked"] += 1
+            n["idle"] += 1
     return n
 
 
@@ -1121,7 +1121,7 @@ def check():
         # -- state
         st, s, cors = call("GET", "/api/state")
         ok("state is 200 with no CORS header", st == 200 and cors is None)
-        ok("counts", s["counts"] == {"need_you": 2, "working": 1, "waiting": 1, "parked": 2, "done": 1,
+        ok("counts", s["counts"] == {"need_you": 2, "working": 1, "waiting": 1, "idle": 2, "done": 1,
                                      "filed": 1, "total": 8}, json.dumps(s["counts"]))
         ok("working set is recent typing plus running, archived left out",
            s["working_set"] == ["cc_a1", "cc_h8"], json.dumps(s["working_set"]))

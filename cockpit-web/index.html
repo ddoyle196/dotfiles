@@ -361,7 +361,7 @@ const TOKEN = "__COCKPIT_TOKEN__";
 const POLL_MS = 4000;
 const TIDY_MS = 60000;
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
-const MARK_WORDS = { answer: "needs you", running: "working", pickup: "parked", waiting: "waiting", done: "done" };
+const MARK_WORDS = { answer: "needs you", running: "working", pickup: "your move", waiting: "waiting", done: "done" };
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -536,7 +536,7 @@ function renderHeader(st) {
   $("needSlot").innerHTML = n > 0
     ? `<button type="button" class="need" id="needBtn" title="Open the oldest one (n)">${n} need you</button>`
     : `<span class="quiet">nothing needs you</span>`;
-  const parts = [["working", st.counts.working], ["waiting", st.counts.waiting], ["parked", st.counts.parked], ["done", st.counts.done]]
+  const parts = [["working", st.counts.working], ["waiting", st.counts.waiting], ["idle", st.counts.idle], ["done", st.counts.done]]
     .filter(([, v]) => v > 0).map(([k, v]) => `${v} ${k}`);
   $("counts").textContent = parts.join(" · ");
   const t = ui.tidy;

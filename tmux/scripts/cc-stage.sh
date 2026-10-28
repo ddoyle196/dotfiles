@@ -25,7 +25,7 @@ paint() {
     print -r -- ""
     print -r -- "   ${TX}${PARKED}${RS}"
     print -r -- ""
-    print -r -- "   ${MUT}Parked — nothing is running.${RS}"
+    print -r -- "   ${MUT}Not running right now.${RS}"
     print -r -- ""
     print -r -- "   ${YEL}enter${RS} ${MUT}picks it back up where it left off${RS}"
     return

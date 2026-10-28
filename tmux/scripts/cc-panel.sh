@@ -148,7 +148,8 @@ AUTO_SEARCH=0   # 1 when that happened because no name matched, not because you 
 SQUERY=""       # the query HIT currently describes, so a pause re-runs only once
 typeset -gA HIT # cc id -> the line the query was found on
 SEARCH_ICON="⌕"
-REAP_HOURS=8    # stop the process behind a conversation nobody has touched
+REAP_HOURS=24   # stop the process behind a conversation nobody has touched
+FIN_HOURS=48    # a finished conversation folds away only once it is this old
 REAPED_AT=0
 FOLLOW=1        # the right pane tracks the cursor on its own
 SHOWN=""        # what the right pane is currently showing, as "<id>:<cold>"
@@ -206,10 +207,11 @@ load() {
     r_state+=("$state"); r_cold+=("$cold"); r_upd+=("$upd"); r_new+=("$new")
     r_prs+=("$prs"); r_block+=("$block"); r_since+=("$since"); r_arch+=("$arch")
     r_gone+=(0)
-  done < <(jq -r --arg s "$SEP" --arg o "$ORDER" '
+  done < <(jq -r --arg s "$SEP" --arg o "$ORDER" \
+              --argjson stale $(( EPOCHSECONDS - FIN_HOURS * 3600 )) '
       def rank: {"answer":1,"running":2,"pickup":3,"waiting":4,"done":5,"dead":6,"empty":7}[.state] // 3;
       def fin:  (if .archived then 2
-                 elif (.state=="done" or .state=="dead") and .cold then 1
+                 elif (.state=="done" or .state=="dead") and .updated_at < $stale then 1
                  else 0 end);
       [ .[] ]
       | (if   $o=="topic" then sort_by([fin, (.topic == ""), .topic, rank, -(.updated_at)])
@@ -437,6 +439,10 @@ add() {
   L_c+=("${6:-}"); L_vis+=("${7:-${#2}}")
 }
 
+is_stale_fin() {
+  [[ $r_state[$1] == (done|dead) ]] && (( r_upd[$1] < EPOCHSECONDS - FIN_HOURS * 3600 ))
+}
+
 build() {
   L_kind=(); L_a=(); L_b=(); L_fg=(); L_row=(); L_c=(); L_vis=(); ROWLINE=()
   SPIN_AT_LINE=(); SPIN_PRE=(); SPIN_POST=()
@@ -448,10 +454,9 @@ build() {
   local n_need=0 n_wait=0 n_fin=0 n_arch=0 inview_rows=0
   (( FOLDED )) && folded_txt="finished folded"
   for (( i=1; i<=NROWS; i++ )); do
-    # Only a finished conversation that is also parked is out of the way. One
-    # with a live process is still something you can talk to, and folding it
-    # made whole topics vanish from the list.
-    [[ ( $r_state[i] == done || $r_state[i] == dead ) && $r_cold[i] == 1 ]] && (( fincount++ ))
+    # Whether a process is attached says nothing about whether you are still
+    # using a conversation, so only age folds a finished one away.
+    is_stale_fin $i && (( fincount++ ))
     [[ -n $r_id[i] ]] && (( convos++ ))    # placeholders for empty topics do not count
     [[ -z $r_id[i] ]] && continue
     if   [[ $r_arch[i] == 1 ]];                     then (( n_arch++ ))
@@ -497,7 +502,7 @@ build() {
         all)   [[ $r_arch[i] == 1 ]] && in_view=0 ;;
         arch)  [[ $r_arch[i] != 1 ]] && in_view=0 ;;
       esac
-      [[ $FOLDED == 1 && ( $st == done || $st == dead ) && $r_cold[i] == 1 ]] && in_view=0
+      (( FOLDED )) && is_stale_fin $i && in_view=0
     fi
     (( in_view )) && (( inview_rows++ ))
     # What you are looking at never vanishes under you, even when the view it
@@ -518,8 +523,6 @@ build() {
       mark="⌕"; markc=$C_YEL
     elif [[ $r_new[i] == 1 && $st != empty ]]; then
       mark="•"; markc=$'\e[38;2;131;179;227m' 
-    elif [[ $r_cold[i] == 1 && $st != dead ]]; then
-      mark="▪"; markc=$C_FAINT
     fi
     # Grey means "not your problem right now". It used to mean "no process
     # attached", which is a resource detail: a conversation idle since last
@@ -955,9 +958,7 @@ reap_tick() {
   REAPED_AT=$EPOCHSECONDS
   local shown=${SHOWN%%:*} out
   out=$("$HOST" reap "$REAP_HOURS" "$shown" 2>/dev/null)
-  [[ -z $out ]] && return
-  refresh_now; load; build
-  note "parked ${#${(f)out}} idle over ${REAP_HOURS}h — enter resumes any of them"
+  [[ -n $out ]] && { refresh_now; load; build }
 }
 
 # The maintenance you were doing by hand: finished conversations file themselves
@@ -1348,8 +1349,8 @@ while true; do
     T) (( NROWS )) && is_thread && { set_topic_cand; if ask "Topic" "$r_topic[$CUR]" && [[ -n $REPLY ]]; then
          "$HOST" topic "$r_id[$CUR]" "$REPLY"; refresh_now; load; else MSG=""; fi } ;;
     x) (( NROWS )) && is_thread && {
-         if [[ $r_cold[$CUR] == 1 ]]; then note "already parked"
-         else "$HOST" stop "$r_id[$CUR]"; refresh_now; load; note "parked — enter resumes it"; fi } ;;
+         if [[ $r_cold[$CUR] == 1 ]]; then note "already stopped"
+         else "$HOST" stop "$r_id[$CUR]"; refresh_now; load; note "stopped — enter resumes it"; fi } ;;
     d) (( NROWS )) && is_thread && {
          if confirm "Remove \"${r_label[$CUR]}\" for good?"; then
            "$HOST" forget "$r_id[$CUR]"; refresh_now; load; note "removed"
