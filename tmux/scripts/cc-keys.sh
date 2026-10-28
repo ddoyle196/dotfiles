@@ -19,7 +19,7 @@ KEYS=(
   "j k:up/down"     "{}:section"      "g G:first/last"
   "f:follow"        "o:order"         "z:fold"          "v:view"
   "< >:width"       "n:new"           "t:topic"         "i:import"
-  "r:rename"        "T:move"          "x:park"          "w:wait"
+  "r:rename"        "T:move"          "x:stop"          "w:wait"
   "e:file"          "d:remove"        "D:drop topic"
   "u:usage"         "R:refresh"       "^l:redraw"       "^r:reload"
   "^h:list"
@@ -29,13 +29,13 @@ KEYS=(
 # `$T_RED:answer` would apply zsh's `:a` modifier and eat the label.
 STATES=(
   "⬤:${T_RED}:answer"  "⠋:${T_YEL}:running"  "○:${T_BLU}:pick up"
-  "·:${T_MUT}:waiting" "✓:${T_GRN}:done"     "▪:${T_FAINT}:parked"
+  "·:${T_MUT}:waiting" "✓:${T_GRN}:done"
   "•:#[fg=#83b3e3]:unread" "⧗:${T_YEL}:blocked"
 )
 
 # Pull request badges, the same glyphs and colours the rows draw them with.
-# `unknown` is deliberately absent: it renders as the same dot as a parked
-# conversation and explaining it would cost more than it is worth.
+# `unknown` is deliberately absent: explaining it would cost more than it is
+# worth.
 # Only the marks that change what you would do. Draft, closed and merged read
 # as themselves once you have seen the set, and the bar is worth more to the
 # keys than to a glossary.
