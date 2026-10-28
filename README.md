@@ -155,6 +155,10 @@ takes `low|medium|high|xhigh|max`, or `none` to leave the effort alone;
 `COCKPIT_ULTRACODE=0` turns the opt-in off. `/effort <level>` and `/effort
 ultracode off` change one conversation.
 
+Helper agents that do not name their own model run on `sonnet` rather than the
+conversation's model. `COCKPIT_SUBAGENT_MODEL` takes any model alias, or `none`
+to let them inherit.
+
 Each conversation remembers the directory it was started in and resumes there,
 so one cockpit can span several projects. `setup.sh` asks once where *new* ones
 should start and records it in `~/.claude/cockpit/dir`; `COCKPIT_DIR` in the
