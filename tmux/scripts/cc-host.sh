@@ -35,6 +35,14 @@ _proj_for() { print -r -- "$HOME/.claude/projects/${1//\//-}" }
 # permission prompt is a conversation stuck waiting on a pane nobody is looking
 # at, so these are deliberately run without stopping to ask.
 CLAUDE_ARGS=( --dangerously-skip-permissions )
+# A cockpit conversation is one you walk away from, so it is worth the thorough
+# answer rather than the fast one: `ultracode` is an effort level that also
+# standing-authorises the Workflow tool, which is what makes an unattended
+# conversation able to fan out instead of waiting to be asked. Set
+# COCKPIT_EFFORT to one of low|medium|high|xhigh|max to dial it back, or to
+# `none` to leave the effort alone; `/effort <level>` changes one conversation.
+EFFORT="${COCKPIT_EFFORT:-ultracode}"
+[[ -n "$EFFORT" && "$EFFORT" != none ]] && CLAUDE_ARGS+=( --effort "$EFFORT" )
 mkdir -p "$REG"
 [[ -f "$TOPICS" ]] || print '[]' > "$TOPICS"
 
