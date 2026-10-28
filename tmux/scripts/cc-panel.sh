@@ -150,6 +150,7 @@ typeset -gA HIT # cc id -> the line the query was found on
 SEARCH_ICON="⌕"
 REAP_HOURS=24   # stop the process behind a conversation nobody has touched
 FIN_HOURS=48    # a finished conversation folds away only once it is this old
+RECENT_HOURS=24 # touched this recently, a conversation shows in every view
 REAPED_AT=0
 FOLLOW=1        # the right pane tracks the cursor on its own
 SHOWN=""        # what the right pane is currently showing, as "<id>:<cold>"
@@ -443,6 +444,40 @@ is_stale_fin() {
   [[ $r_state[$1] == (done|dead) ]] && (( r_upd[$1] < EPOCHSECONDS - FIN_HOURS * 3600 ))
 }
 
+# A search looks everywhere, so filtering overrides both the view and the
+# fold: a conversation you can name should never be hidden from you. Nor one
+# you were in today: waiting on someone is a reason to dim it, not to lose it.
+in_view() {
+  local i=$1
+  [[ -n $FILTER ]] && return 0
+  case $VIEW in
+    focus) [[ $r_arch[i] == 1 ]] && return 1
+           [[ $r_state[i] == (waiting|done|dead) ]] &&
+             (( r_upd[i] < EPOCHSECONDS - RECENT_HOURS * 3600 )) && return 1 ;;
+    all)   [[ $r_arch[i] == 1 ]] && return 1 ;;
+    arch)  [[ $r_arch[i] != 1 ]] && return 1 ;;
+  esac
+  (( FOLDED )) && is_stale_fin $i && return 1
+  return 0
+}
+
+# Whether build draws row i at all. Movement has to agree with it, or the
+# cursor lands on a row that is not on screen and drags it in on the next draw.
+drawn() {
+  [[ $r_state[$1] == empty && $ORDER != topic ]] && return 1
+  matches $1 && in_view $1
+}
+
+# Steps CUR in direction $1 until it rests on a drawn row, wrapping round.
+settle() {
+  local dir=$1 n=0
+  while (( n++ < NROWS )) && ! drawn $CUR; do
+    (( CUR += dir ))
+    (( CUR > NROWS )) && CUR=1
+    (( CUR < 1 )) && CUR=$NROWS
+  done
+}
+
 build() {
   L_kind=(); L_a=(); L_b=(); L_fg=(); L_row=(); L_c=(); L_vis=(); ROWLINE=()
   SPIN_AT_LINE=(); SPIN_PRE=(); SPIN_POST=()
@@ -493,17 +528,8 @@ build() {
     st=$r_state[i]
     [[ $st == empty && $ORDER != topic && $i -ne $CUR ]] && continue
     matches $i || continue
-    # A search looks everywhere, so filtering overrides both the view and the
-    # fold: a conversation you can name should never be hidden from you.
     local in_view=1
-    if [[ -z $FILTER ]]; then
-      case $VIEW in
-        focus) [[ $r_arch[i] == 1 || $st == (waiting|done|dead) ]] && in_view=0 ;;
-        all)   [[ $r_arch[i] == 1 ]] && in_view=0 ;;
-        arch)  [[ $r_arch[i] != 1 ]] && in_view=0 ;;
-      esac
-      (( FOLDED )) && is_stale_fin $i && in_view=0
-    fi
+    in_view $i || in_view=0
     (( in_view )) && (( inview_rows++ ))
     # What you are looking at never vanishes under you, even when the view it
     # belongs to changes. Moving off it is what drops it from the list.
@@ -875,6 +901,7 @@ section_jump() {   # section_jump <-1|1>
       CUR=1
     fi
   fi
+  settle 1
   SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME
 }
 
@@ -1294,14 +1321,14 @@ while true; do
   fi
   MSG=""
   case $key in
-    j) (( NROWS )) && { (( CUR < NROWS )) && (( CUR++ )) || CUR=1 }
+    j) (( NROWS )) && { (( CUR < NROWS )) && (( CUR++ )) || CUR=1; settle 1 }
        SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
-    k) (( NROWS )) && { (( CUR > 1 )) && (( CUR-- )) || CUR=$NROWS }
+    k) (( NROWS )) && { (( CUR > 1 )) && (( CUR-- )) || CUR=$NROWS; settle -1 }
        SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
     '}'|']') section_jump 1 ;;
     '{'|'[') section_jump -1 ;;
-    g) CUR=1; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
-    G) CUR=$NROWS; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
+    g) CUR=1; settle 1; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
+    G) CUR=$NROWS; settle -1; SEL_ID=${r_id[$CUR]:-}; PEND_AT=$EPOCHREALTIME ;;
     $'\n'|$'\r') show_row 1 ;;
     $'\t')       show_row 0 ;;
     f) FOLLOW=$(( 1 - FOLLOW )); PEND_AT=0
