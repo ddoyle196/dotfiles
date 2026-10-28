@@ -145,12 +145,15 @@ own, keeping the label it already had. `/branch cars` names the tangent you are
 now in; unnamed, it becomes `… (branch)`. One gesture, two rows, and the train of
 thought you left is one `enter` away.
 
-Conversations start at `ultracode` effort: a cockpit conversation is one you walk
-away from, so it is worth the thorough answer rather than the fast one, and that
-level is also what lets an unattended conversation reach for the Workflow tool
-without being asked first. `COCKPIT_EFFORT` takes `low|medium|high|xhigh|max` to
-dial it back, or `none` to leave the effort alone, and `/effort <level>` changes
-one conversation.
+Conversations start in ultracode at `medium` effort. Ultracode is not an effort
+level but a standing opt-in to the Workflow tool, which is what lets a
+conversation nobody is watching fan out instead of waiting to be asked; it holds
+at any effort, so the thinking budget is set separately rather than inherited.
+(`--effort ultracode` would pin it to `xhigh`, which buys long thinking on top of
+the fan-out and is rarely what an unattended conversation needs.) `COCKPIT_EFFORT`
+takes `low|medium|high|xhigh|max`, or `none` to leave the effort alone;
+`COCKPIT_ULTRACODE=0` turns the opt-in off. `/effort <level>` and `/effort
+ultracode off` change one conversation.
 
 Each conversation remembers the directory it was started in and resumes there,
 so one cockpit can span several projects. `setup.sh` asks once where *new* ones

@@ -35,14 +35,17 @@ _proj_for() { print -r -- "$HOME/.claude/projects/${1//\//-}" }
 # permission prompt is a conversation stuck waiting on a pane nobody is looking
 # at, so these are deliberately run without stopping to ask.
 CLAUDE_ARGS=( --dangerously-skip-permissions )
-# A cockpit conversation is one you walk away from, so it is worth the thorough
-# answer rather than the fast one: `ultracode` is an effort level that also
-# standing-authorises the Workflow tool, which is what makes an unattended
-# conversation able to fan out instead of waiting to be asked. Set
-# COCKPIT_EFFORT to one of low|medium|high|xhigh|max to dial it back, or to
-# `none` to leave the effort alone; `/effort <level>` changes one conversation.
-EFFORT="${COCKPIT_EFFORT:-ultracode}"
+# Ultracode is not an effort level, it is a standing opt-in to the Workflow
+# tool that holds at any effort -- and `--effort ultracode` quietly pins the
+# effort to xhigh on the way in. A conversation you walk away from wants the
+# fan-out, not the thinking budget, so the two are set separately: the
+# `ultracode` settings key for the orchestration, `--effort` for the thinking.
+# COCKPIT_EFFORT takes low|medium|high|xhigh|max, or `none` to leave it alone;
+# COCKPIT_ULTRACODE=0 turns the standing opt-in off. `/effort <level>` and
+# `/effort ultracode off` change one conversation.
+EFFORT="${COCKPIT_EFFORT:-medium}"
 [[ -n "$EFFORT" && "$EFFORT" != none ]] && CLAUDE_ARGS+=( --effort "$EFFORT" )
+(( ${COCKPIT_ULTRACODE:-1} )) && CLAUDE_ARGS+=( --settings '{"ultracode":true}' )
 mkdir -p "$REG"
 [[ -f "$TOPICS" ]] || print '[]' > "$TOPICS"
 
