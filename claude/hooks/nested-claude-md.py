@@ -30,7 +30,7 @@ def candidates(ti):
     """Every path a tool call might reach, best guess first.
 
     Bash matters as much as Read here: under --dangerously-skip-permissions the
-    agent prefers `cat` over the Read tool, which is exactly how the cockpit
+    agent prefers `cat` over the Read tool, which is exactly how helm
     runs, so a file-tool-only hook would never fire where it is needed most.
     """
     for k in PATH_KEYS:

@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Process host for the cockpit.
+# Process host for helm.
 #
 # A conversation is a registry file, not a process. The tmux session is only how
 # it happens to be running right now; when that dies (crash, reboot, /exit) the
@@ -15,23 +15,23 @@ unset TMUX TMUX_PANE
 PREFIX="cc_"
 SEP=$'\x01'
 # Where conversations are started, and therefore which transcript directory
-# holds them. setup.sh records this machine's choice; COCKPIT_DIR overrides it.
+# holds them. setup.sh records this machine's choice; HELM_DIR overrides it.
 # different machine; Claude Code names its transcript folder after the path with
 # every slash turned into a dash.
 source "$HOME/.tmux/scripts/lib/cc-dir.sh"
 CWD=$(_cc_dir)
 IDX="$HOME/.claude/session-index"
-REG="$HOME/.claude/cockpit/threads"
+REG="$HOME/.claude/helm/threads"
 # Topics are declared, not derived: one can exist with nothing in it yet, the
 # way an empty tab used to hold a place for work that had not arrived.
-TOPICS="$HOME/.claude/cockpit/topics.json"
+TOPICS="$HOME/.claude/helm/topics.json"
 PROJ="$HOME/.claude/projects/${CWD//\//-}"
 # A conversation remembers the directory it was started in, so resuming puts it
-# back where it belongs instead of wherever the cockpit happens to default to.
-# Entries written before this existed carry no cwd and fall back to COCKPIT_DIR.
+# back where it belongs instead of wherever helm happens to default to.
+# Entries written before this existed carry no cwd and fall back to HELM_DIR.
 _cwd_for()  { local c; c=$(jq -r '.cwd // ""' "$REG/$1.json" 2>/dev/null); print -r -- "${c:-$CWD}" }
 _proj_for() { print -r -- "$HOME/.claude/projects/${1//\//-}" }
-# Cockpit conversations run unattended in a background session, where a
+# Helm conversations run unattended in a background session, where a
 # permission prompt is a conversation stuck waiting on a pane nobody is looking
 # at, so these are deliberately run without stopping to ask.
 CLAUDE_ARGS=( --dangerously-skip-permissions )
@@ -40,18 +40,18 @@ CLAUDE_ARGS=( --dangerously-skip-permissions )
 # effort to xhigh on the way in. A conversation you walk away from wants the
 # fan-out, not the thinking budget, so the two are set separately: the
 # `ultracode` settings key for the orchestration, `--effort` for the thinking.
-# COCKPIT_EFFORT takes low|medium|high|xhigh|max, or `none` to leave it alone;
-# COCKPIT_ULTRACODE=0 turns the standing opt-in off. `/effort <level>` and
+# HELM_EFFORT takes low|medium|high|xhigh|max, or `none` to leave it alone;
+# HELM_ULTRACODE=0 turns the standing opt-in off. `/effort <level>` and
 # `/effort ultracode off` change one conversation.
-EFFORT="${COCKPIT_EFFORT:-medium}"
+EFFORT="${HELM_EFFORT:-medium}"
 [[ -n "$EFFORT" && "$EFFORT" != none ]] && CLAUDE_ARGS+=( --effort "$EFFORT" )
-(( ${COCKPIT_ULTRACODE:-1} )) && CLAUDE_ARGS+=( --settings '{"ultracode":true}' )
+(( ${HELM_ULTRACODE:-1} )) && CLAUDE_ARGS+=( --settings '{"ultracode":true}' )
 # Helper agents that do not name a model of their own would otherwise run on
 # the conversation's model; most of them are searches and reads that a cheaper
-# one handles as well. COCKPIT_SUBAGENT_MODEL takes any model alias, or `none`
+# one handles as well. HELM_SUBAGENT_MODEL takes any model alias, or `none`
 # to let them inherit. `env` execs into claude, so the pane root stays claude.
 CLAUDE=( claude )
-SUBAGENT_MODEL="${COCKPIT_SUBAGENT_MODEL:-sonnet}"
+SUBAGENT_MODEL="${HELM_SUBAGENT_MODEL:-sonnet}"
 [[ -n "$SUBAGENT_MODEL" && "$SUBAGENT_MODEL" != none ]] &&
   CLAUDE=( env CLAUDE_CODE_SUBAGENT_MODEL="$SUBAGENT_MODEL" claude )
 mkdir -p "$REG"
@@ -189,7 +189,7 @@ start)  # bring a parked conversation back up, or no-op if it is already running
   if tmux has-session -t "=$id" 2>/dev/null; then
     # The husk case: the name survives but the process did not, so new-session
     # would fail on a duplicate. Reclaim the pane rather than churn the session,
-    # which keeps whatever the cockpit has already pointed at it valid.
+    # which keeps whatever helm has already pointed at it valid.
     pane=$(tmux list-panes -t "=$id" -F '#{pane_id}' 2>/dev/null | head -1)
     tmux respawn-pane -k -t "$pane" -c "$cwd" "${cmd[@]}"
   else
@@ -202,7 +202,7 @@ start)  # bring a parked conversation back up, or no-op if it is already running
 adopt)  # migration: lift an existing pane into its own hosted session
   pane="${2:?pane id required}"
   # Where the pane actually is, so a parked conversation resumes there and not
-  # in whatever directory the cockpit was configured with.
+  # in whatever directory helm was configured with.
   pcwd=$(tmux display -p -t "$pane" '#{pane_current_path}' 2>/dev/null)
   [[ -n "$pcwd" ]] || pcwd="$CWD"
   topic="${3:-$(tmux display -p -t "$pane" '#{?@topic,#{@topic},#{window_name}}')}"
@@ -317,7 +317,7 @@ reply)  # answer a conversation without leaving the list
 
 usage)  # tokens and active time per conversation, grouped by topic; `usage csv` to export
   python3 "$HOME/.tmux/scripts/lib/cc-usage-report.py" \
-          "$REG" "$HOME/.claude/cockpit/usage.json" "${2:-}"
+          "$REG" "$HOME/.claude/helm/usage.json" "${2:-}"
   ;;
 
 seen)  _write "${2:?}" last_seen "$(date +%s)" ;;   # you have looked at it since it last spoke

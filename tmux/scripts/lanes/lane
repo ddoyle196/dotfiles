@@ -1,0 +1,479 @@
+#!/usr/bin/env python3
+"""lane: read and steer the helm lanes from a shell or an agent.
+
+Output is short plain text so it can be pasted into a model's context as is.
+"""
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import lanedb  # noqa: E402
+import sync  # noqa: E402
+
+STATUS_ORDER = ("you", "stalled", "working", "person", "review", "ci",
+                "ready", "done", "idle")
+DIGEST_LINES = 40
+DIGEST_WIDTH = 140
+BRIEF_LINES = 25
+SINCE_LIMIT = 5
+EVENT_KINDS = ("checkpoint", "ask", "answer", "block", "unblock", "pr",
+               "phase", "done", "archive", "note")
+
+
+# ------------------------------------------------------------ formatting
+
+
+def age(seconds):
+    seconds = max(0, int(seconds))
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds // size}{unit}"
+    return "now"
+
+
+def status_cell(item, now):
+    status, detail = item["status"], item.get("status_detail") or ""
+    since = age(now - (item["last_activity"] or now))
+    if status == "you":
+        return f"needs you · {since}"
+    if status == "person":
+        return f"waiting on {detail}".strip()
+    if status in ("review", "ci"):
+        return f"{status} {detail}".strip()
+    if status == "working" and detail:
+        return f"working · {detail}"
+    return status or "idle"
+
+
+def rank(item):
+    status = item["status"]
+    order = STATUS_ORDER.index(status) if status in STATUS_ORDER else len(STATUS_ORDER)
+    return (order, -(item["last_activity"] or 0))
+
+
+def groups(items):
+    """[(heading, [lanes])] in TUI order: chat, needs you, topics, stale."""
+    chat = [x for x in items if x["kind"] == "chat"]
+    rest = [x for x in items if x["kind"] != "chat"]
+    stale = [x for x in rest if x["stale_since"]]
+    live = [x for x in rest if not x["stale_since"]]
+    needs = sorted((x for x in live if x["status"] == "you"),
+                   key=lambda x: x["last_activity"] or 0)
+    by_topic = {}
+    for x in live:
+        if x["status"] != "you":
+            by_topic.setdefault(x["topic"] or "unfiled", []).append(x)
+    newest = lambda name: -max(x["last_activity"] or 0 for x in by_topic[name])
+    out = []
+    if chat:
+        out.append(("chat", chat))
+    if needs:
+        out.append(("Needs you", needs))
+    for name in sorted(by_topic, key=newest):
+        out.append((name, sorted(by_topic[name], key=rank)))
+    if stale:
+        out.append((f"Stale · {len(stale)}", sorted(stale, key=rank)))
+    return out
+
+
+def list_text(items, now):
+    lines = []
+    for heading, members in groups(items):
+        lines.append(heading)
+        for x in members:
+            lines.append(f"  {x['id']}  {x['title']}  "
+                         f"[{status_cell(x, now)}]  {age(now - (x['last_activity'] or now))}")
+    return "\n".join(lines)
+
+
+def digest_lines(items, now):
+    live = [x for x in items if x["kind"] != "chat" and not x["stale_since"]]
+    lines = []
+    for x in sorted(live, key=rank):
+        title = x["title"] + (" (workflow)" if x["kind"] == "workflow" else "")
+        parts = [title, x["topic"], x["status_detail"]]
+        line = f"[{x['status']}] " + " · ".join(p for p in parts if p)
+        lines.append(line[:DIGEST_WIDTH])
+    if len(lines) > DIGEST_LINES:
+        extra = len(lines) - (DIGEST_LINES - 1)
+        lines = lines[:DIGEST_LINES - 1] + [f"+{extra} more (lane list)"]
+    return lines
+
+
+def last_seen(lane_id):
+    path = os.path.join(lanedb.helm_dir(), "threads", f"{lane_id}.json")
+    record = sync.read_json(path) or {}
+    try:
+        return int(record.get("last_seen") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def latest_by_title_prefix(events, kind):
+    """Newest event of a kind per distinct first word of its title (a PR label)."""
+    seen = {}
+    for event in events:
+        if event["kind"] == kind:
+            seen.setdefault(event["title"].split(" ")[0], event)
+    return list(seen.values())
+
+
+def now_line(item, events):
+    detail = item.get("status_detail") or ""
+    if item["status"] in ("you", "person", "stalled") and detail:
+        return detail
+    for event in events:
+        if event["kind"] in ("checkpoint", "done", "phase"):
+            return event["title"]
+    return detail or "nothing yet"
+
+
+def workflow_progress(con, item):
+    raw = lanedb.get_meta(con, f"wf:{item['id']}")
+    try:
+        data = json.loads(raw) if raw else {}
+    except ValueError:
+        return ""
+    if not data:
+        return ""
+    return (f"phase {data.get('phase') or '-'} · "
+            f"{data.get('resulted', 0)}/{data.get('started', 0)} agents done")
+
+
+def brief(con, item, now):
+    events = item["events"]
+    head = f"{item['title']}  [{status_cell(item, now)}]"
+    if item["topic"]:
+        head += f"            topic: {item['topic']}"
+    lines = [head]
+    kind_line = item["kind"]
+    if item["kind"] == "workflow" and item.get("parent"):
+        parent = lanedb.lane(con, item["parent"])
+        kind_line += f" launched from {parent['title'] if parent else item['parent']}"
+    lines.append(kind_line)
+    lines.append("TASK: " + (item.get("goal") or "not recorded yet"))
+    if item.get("recap"):
+        lines.append("WHERE IT STANDS: " + item["recap"])
+    prs = latest_by_title_prefix(events, "pr")
+    if prs:
+        waits = f"      waiting on: {item['status_detail']}" \
+            if item["status"] == "person" else ""
+        lines.append("PRs: " + ", ".join(p["title"] for p in prs[:3]) + waits)
+    elif item["status"] == "person":
+        lines.append(f"waiting on: {item['status_detail']}")
+    progress = workflow_progress(con, item) if item["kind"] == "workflow" else ""
+    lines.append("NOW: " + (progress or now_line(item, events)))
+    seen = last_seen(item["id"]) if item["kind"] == "conversation" else 0
+    fresh = [e for e in reversed(events) if e["at"] > seen][-SINCE_LIMIT:]
+    when = f"{age(now - seen)} ago" if seen else "recent"
+    lines.append(f"SINCE YOU LOOKED ({when}):")
+    lines.extend(f"- {age(now - e['at'])} {e['kind']}: {e['title']}" for e in fresh)
+    if not fresh:
+        lines.append("- nothing new")
+    return lines[:BRIEF_LINES]
+
+
+# -------------------------------------------------------------- commands
+
+
+def open_db():
+    con = lanedb.connect()
+    if lanedb.get_meta(con, "last_sync") is None:
+        sync.sync(con)
+    return con
+
+
+def resolve(con, lane_id):
+    item = lanedb.lane(con, lane_id)
+    if item is None:
+        sys.exit(f"lane: no lane {lane_id}")
+    return item
+
+
+def host_archive(lane_id):
+    """The registry owns archive state; a db-only archive is undone by sync."""
+    try:
+        run = subprocess.run([sync.cc_host(), "archive", lane_id],
+                             capture_output=True, check=False)
+    except OSError:
+        return False
+    return run.returncode == 0
+
+
+def archive_lane(con, item):
+    if item["kind"] == "conversation" and not host_archive(item["id"]):
+        return False
+    at = int(time.time())
+    lanedb.archive(con, item["id"], at)
+    lanedb.add_event(con, item["id"], at, "archive", "archived", None,
+                     f"ar:{item['id']}")
+    return True
+
+
+def cmd_sync(args):
+    con = lanedb.connect()
+    print(sync.summary_line(sync.sync(con)))
+
+
+def cmd_list(args):
+    con = open_db()
+    items = lanedb.lanes(con)
+    if args.json:
+        print(json.dumps(items))
+        return
+    print(list_text(items, int(time.time())))
+
+
+def cmd_show(args):
+    con = open_db()
+    print("\n".join(brief(con, resolve(con, args.id), int(time.time()))))
+
+
+def cmd_digest(args):
+    con = open_db()
+    print("\n".join(digest_lines(lanedb.lanes(con), int(time.time()))))
+
+
+def parse_at(text):
+    """Epoch seconds or a local ISO date/time, so history can be backfilled."""
+    if not text:
+        return int(time.time())
+    if text.isdigit():
+        return int(text)
+    try:
+        return int(datetime.datetime.fromisoformat(text).timestamp())
+    except ValueError:
+        sys.exit(f"lane: --at must be epoch seconds or YYYY-MM-DD[THH:MM], not {text!r}")
+
+
+def cmd_log(args):
+    if args.kind not in EVENT_KINDS:
+        sys.exit(f"lane: kind must be one of {', '.join(EVENT_KINDS)}")
+    at = parse_at(args.at)
+    con = open_db()
+    resolve(con, args.id)
+    lanedb.add_event(con, args.id, at, args.kind, args.title, args.detail)
+    touch(con, args.id, at)
+
+
+def cmd_ask(args):
+    if not args.clear and args.resolved is None and not args.question:
+        sys.exit("lane: ask needs a question, --clear or --resolved")
+    con = open_db()
+    item = resolve(con, args.id)
+    key = sync.ask_key(args.id)
+    if args.resolved is not None:
+        resolve_ask(con, item, args.resolved)
+        return
+    if args.clear:
+        con.execute("DELETE FROM meta WHERE k=?", (key,))
+        if item["kind"] == "task":
+            con.execute("UPDATE lanes SET status='ready', status_detail=''"
+                        " WHERE id=? AND status='you'", (args.id,))
+        sync.sync(con)
+        return
+    now = int(time.time())
+    lanedb.set_meta(con, key, json.dumps(
+        {"q": args.question, "since": item["last_activity"] or 0}))
+    con.execute("UPDATE lanes SET status='you', status_detail=?, stale_since=0"
+                " WHERE id=?", (args.question, args.id))
+    lanedb.add_event(con, args.id, now, "ask", args.question, None,
+                     f"ask:{args.id}:q:{args.question[:60]}")
+    touch(con, args.id, now)
+
+
+def touch(con, lane_id, at=None):
+    """Task lanes have no conversation to date them; writing to one is activity."""
+    con.execute("UPDATE lanes SET last_activity=MAX(COALESCE(last_activity, 0), ?)"
+                " WHERE id=? AND kind='task'", (int(at or time.time()), lane_id))
+
+
+def new_task_id(con):
+    while True:
+        lane_id = "t_" + os.urandom(3).hex()
+        if lanedb.lane(con, lane_id) is None:
+            return lane_id
+
+
+def resolve_ask(con, item, note):
+    """Answer a question whatever asked it: an ask set with `lane ask`, or one
+    the conversation's own last turn raised."""
+    now = int(time.time())
+    con.execute("DELETE FROM meta WHERE k=?", (sync.ask_key(item["id"]),))
+    if item["kind"] == "conversation":
+        lanedb.set_meta(con, sync.resolved_key(item["id"]), json.dumps(
+            {"since": item["last_activity"] or 0, "note": note}))
+    con.execute("UPDATE lanes SET status='ready', status_detail=? WHERE id=? AND status='you'",
+                (note, item["id"]))
+    lanedb.add_event(con, item["id"], now, "answer", note or "answered", None,
+                     f"res:{item['id']}:{now}")
+    touch(con, item["id"], now)
+    sync.sync(con)
+
+
+def cmd_new(args):
+    con = open_db()
+    now = int(time.time())
+    lane_id = new_task_id(con)
+    topic = sync.clean_topic(args.topic) or None
+    lanedb.upsert_lane(con, id=lane_id, kind="task", title=args.title,
+                       topic=topic, topic_source="chat" if topic else None,
+                       created=now, last_activity=now, status="ready",
+                       goal=args.goal, goal_source="you" if args.goal else None)
+    if args.recap:
+        lanedb.set_brief(con, lane_id, recap=args.recap, at=now)
+    lanedb.add_event(con, lane_id, now, "checkpoint", "started: " + args.title,
+                     args.goal, f"new:{lane_id}")
+    if not args.no_select:
+        lanedb.write_selection(lanedb.lane(con, lane_id))
+    print(lane_id)
+
+
+def cmd_done(args):
+    con = open_db()
+    item = resolve(con, args.id)
+    if item["kind"] != "task":
+        sys.exit("lane: only task lanes are marked done by hand;"
+                 " a conversation's status comes from its own turns")
+    now = int(time.time())
+    con.execute("UPDATE lanes SET status='done', status_detail=? WHERE id=?",
+                (args.note or "", args.id))
+    con.execute("DELETE FROM meta WHERE k=?", (sync.ask_key(args.id),))
+    lanedb.add_event(con, args.id, now, "done", args.note or "done", None,
+                     f"done:{args.id}:{now}")
+    touch(con, args.id, now)
+
+
+def cmd_link(args):
+    con = open_db()
+    wf, parent = resolve(con, args.workflow), resolve(con, args.lane)
+    if wf["kind"] != "workflow":
+        sys.exit(f"lane: {args.workflow} is not a workflow")
+    con.execute("UPDATE lanes SET parent=?, topic=?, topic_source='registry'"
+                " WHERE id=?", (parent["id"], parent["topic"], wf["id"]))
+
+
+def cmd_brief(args):
+    if not (args.goal or args.recap):
+        sys.exit("lane: brief needs --goal and/or --recap")
+    con = open_db()
+    resolve(con, args.id)
+    lanedb.set_brief(con, args.id, goal=args.goal, recap=args.recap)
+    touch(con, args.id)
+
+
+def cmd_topic(args):
+    con = open_db()
+    resolve(con, args.id)
+    lanedb.set_topic(con, args.id, args.name, "you")
+
+
+def cmd_stale(args):
+    con = open_db()
+    now = int(time.time())
+    for x in lanedb.lanes(con):
+        if x["stale_since"]:
+            print(f"{x['id']}  {x['title']}  [{status_cell(x, now)}]  "
+                  f"{age(now - (x['last_activity'] or now))}")
+
+
+def cmd_archive(args):
+    con = open_db()
+    if args.stale:
+        targets = [x for x in lanedb.lanes(con) if x["stale_since"]]
+    elif args.id:
+        targets = [resolve(con, args.id)]
+    else:
+        sys.exit("lane: archive needs an id or --stale")
+    done = sum(archive_lane(con, item) for item in targets)
+    print(f"archived {done}")
+    if done < len(targets):
+        sys.exit(f"lane: {len(targets) - done} could not be archived by the host")
+
+
+def cmd_select(args):
+    con = open_db()
+    lanedb.write_selection(resolve(con, args.id))
+
+
+def cmd_topics(args):
+    try:
+        import topics
+    except ModuleNotFoundError as err:
+        if err.name != "topics":
+            raise
+        sys.exit("lane: topics.py is not installed")
+    sys.exit(topics.main(args.rest))
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog="lane", description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    add = lambda name, fn, help: _add(sub, name, fn, help)
+    add("sync", cmd_sync, "refresh from registry and workflow journals")
+    p = add("list", cmd_list, "active lanes, grouped")
+    p.add_argument("--json", action="store_true")
+    p = add("show", cmd_show, "three-level brief for one lane")
+    p.add_argument("id")
+    add("digest", cmd_digest, "one line per live lane")
+    p = add("log", cmd_log, "append an event to a lane")
+    p.add_argument("id")
+    p.add_argument("title")
+    p.add_argument("--kind", default="note")
+    p.add_argument("--detail")
+    p.add_argument("--at", help="epoch seconds or YYYY-MM-DD[THH:MM]; default now")
+    p = add("ask", cmd_ask, "mark a lane as waiting on you with this question")
+    p.add_argument("id")
+    p.add_argument("question", nargs="?")
+    p.add_argument("--clear", action="store_true")
+    p.add_argument("--resolved", metavar="NOTE",
+                   help="mark the question answered (also one the conversation asked itself)")
+    p = add("new", cmd_new, "start a task lane for new work; prints its id and selects it")
+    p.add_argument("title")
+    p.add_argument("--goal", help="who wants what, one line")
+    p.add_argument("--topic", help="a slug from `lane topics known`, or a new one")
+    p.add_argument("--recap")
+    p.add_argument("--no-select", action="store_true")
+    p = add("done", cmd_done, "mark a task lane finished")
+    p.add_argument("id")
+    p.add_argument("--note")
+    p = add("link", cmd_link, "file a workflow under a lane")
+    p.add_argument("workflow")
+    p.add_argument("lane")
+    p = add("brief", cmd_brief,
+            "set the big picture (--goal) and where it stands (--recap)")
+    p.add_argument("id")
+    p.add_argument("--goal", help="the project and task, one line")
+    p.add_argument("--recap", help="where it stands, one or two sentences")
+    p = add("topic", cmd_topic, "pin a topic")
+    p.add_argument("id")
+    p.add_argument("name")
+    p = add("topics", cmd_topics, "AI topic consolidation: suggest|apply")
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    add("stale", cmd_stale, "list stale lanes")
+    p = add("archive", cmd_archive, "archive a lane, or all stale ones")
+    p.add_argument("id", nargs="?")
+    p.add_argument("--stale", action="store_true")
+    p = add("select", cmd_select, "record the selected lane")
+    p.add_argument("id")
+    return parser
+
+
+def _add(sub, name, fn, help):
+    p = sub.add_parser(name, help=help)
+    p.set_defaults(fn=fn)
+    return p
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    args.fn(args)
+
+
+if __name__ == "__main__":
+    main()

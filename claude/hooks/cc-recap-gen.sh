@@ -1,7 +1,18 @@
 #!/bin/bash
-# Writes the one-line "where we left off" plus the state the cockpit renders.
+# Writes the one-line "where we left off" plus the state helm renders.
 # Both come from one model call so the badge and the sentence cannot disagree.
 set -u
+
+# One word the lanes view can group by. The model may answer "new: some thing"
+# or wrap the slug in decoration, so reduce it to a-z, 0-9 and hyphens.
+topic_from_raw() {
+  printf '%s' "$1" | sed -n 's/^[[:space:]]*TOPIC:[[:space:]]*//p' | head -1 \
+    | tr '[:upper:]' '[:lower:]' | sed 's/^new:[[:space:]]*//' \
+    | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//' | cut -c1-40 | sed 's/-*$//'
+}
+# Sourced by the tests to exercise the parse above without calling the model.
+[ "${CC_RECAP_SOURCE_ONLY:-}" = 1 ] && return 0
+
 sid="$1"; transcript="$2"
 idx="$HOME/.claude/session-index"
 out="$idx/$sid.json"
@@ -24,6 +35,12 @@ msgs=$(tail -500 "$transcript" | jq -r '
 
 [ -z "$msgs" ] && exit 0
 
+# Topics already in use, so a new conversation joins one instead of inventing a
+# near-duplicate. Absent helper or empty list just means the model starts fresh.
+# The tail alone shows the latest step; the earlier goal keeps the big picture.
+prior_goal=$(jq -r '.goal // empty' "$out" 2>/dev/null | head -c 200)
+known_topics=$(python3 "$HOME/.tmux/scripts/lanes/topics.py" known 2>/dev/null | head -40 | tr '\n' ',' | sed 's/,$//')
+
 # Earlier turns are context and get clipped from the front. The final turn is
 # clipped from the BACK, because a closing question is the whole signal and it
 # lives in the last characters of the message.
@@ -40,7 +57,7 @@ TRANSCRIPT
 Do not continue that conversation. You are classifying it from the outside, and
 the LAST MESSAGE decides most of it.
 
-Reply with exactly three lines, nothing before or after:
+Reply with exactly six lines, nothing before or after:
 
 STATE: one of answer, pickup, waiting, done
   answer  = the LAST MESSAGE puts an explicit, unanswered question or choice to
@@ -66,9 +83,18 @@ step. If nothing is left to do, say so plainly. No markdown, no quotes.
 WAITING_ON: the person or team the conversation names as having the next move,
   in a few words. Subagents, background jobs and running commands do not count.
   Write none if no one else holds it.
-' "$context" "$final")
+TOPIC: the project this conversation belongs to. Reuse one of the existing topics
+  if it fits: %s. Otherwise write new: followed by a short lowercase slug.
+GOAL: what this whole conversation is for, max 15 words, plain English: the
+  project and the task, not the latest step. Earlier goal: %s. Keep it word for
+  word unless the conversation has clearly moved on to different work.
+ASK: only when STATE is answer, the question put to the person, rewritten so it
+  can be answered from a one-line list: the subject in a few words, a colon,
+  then the choice, max 70 characters. Example: "Reports export: all of
+  Q3, or just one region?" Write none when STATE is not answer.
+' "$context" "$final" "${known_topics:-none yet}" "${prior_goal:-none yet}")
 
-raw=$(printf '%s' "$prompt" | CC_RECAP_CHILD=1 claude -p \
+raw=$(printf '%s' "$prompt" | env -u CC_LANES_MAIN CC_RECAP_CHILD=1 claude -p \
   --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
   --max-turns 1 \
   --model claude-haiku-4-5-20251001 \
@@ -78,6 +104,13 @@ state=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*STATE:[[:space:]]*//p' \
   | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z' | head -c 12)
 recap=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*RECAP:[[:space:]]*//p' \
   | tr '\n' ' ' | sed 's/  */ /g; s/^ //; s/ $//')
+topic=$(topic_from_raw "$raw")
+goal=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*GOAL:[[:space:]]*//p' | head -1 \
+  | tr -d '"*`' | sed 's/[[:space:]]*$//' | cut -c1-160)
+[ -n "$goal" ] || goal=$prior_goal
+ask=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*ASK:[[:space:]]*//p' | head -1 \
+  | tr -d '"*`' | sed 's/[[:space:]]*$//' | cut -c1-90)
+case "$(printf '%s' "$ask" | tr '[:upper:]' '[:lower:]')" in none|n/a|'') ask="" ;; esac
 who=$(printf '%s' "$raw" | sed -n 's/^[[:space:]]*WAITING_ON:[[:space:]]*//p' \
   | head -1 | tr -d '"*`' | sed "s/^[_' ]*//; s/[_'[:space:].]*\$//")
 
@@ -107,7 +140,7 @@ ask_re="$ask_re"'|\b(want me to|shall i|should i|do you want|would you like)\b'
 ask_re="$ask_re"'|\b(let me know|say the word|your call|up to you|tell me what|which would you)\b'
 # "still open" / "still stands" was tried here and dropped: it fired on "Still
 # open from earlier: parking maps aren't loaded" and on "the two questions for
-# the team still stand", neither of which is a question aimed at you.
+# the reviewer still stand", neither of which is a question aimed at you.
 if printf '%s' "$close" | grep -qiE "$ask_re"; then
   [ "$state" = pickup ] && state=answer
 else
@@ -136,6 +169,9 @@ if [ "$state" = answer ]; then
     sub("^ASSISTANT: "; "") | gsub("\\*\\*|__"; "")
     | [splits("(?<=[.?!])\\s+")] | map(select(length > 0))
     | ([.[] | select(test($re; "i"))] | last) // last // ""')
+  # The list row shows ~50 characters, so the model's subject-first rewording
+  # wins; the sentence lifted from the reply is the fallback.
+  [ -n "$ask" ] && question=$ask
 fi
 case "$(printf '%s' "$who" | tr '[:upper:]' '[:lower:]')" in
   ''|none|no\ one|nobody|n/a) who="" ;;
@@ -144,10 +180,12 @@ esac
 
 lines=$(wc -l < "$transcript" | tr -d ' ')
 jq -n --arg s "$sid" --arg r "$recap" --arg st "$state" --arg t "$transcript" \
-      --arg q "$question" --arg w "$who" \
+      --arg q "$question" --arg w "$who" --arg tp "$topic" --arg g "$goal" \
       --argjson l "$lines" --argjson u "$(date +%s)" \
   '{session_id:$s, recap:$r, state:$st, transcript:$t, lines:$l, updated_at:$u,
     question:($q | gsub("^\\s+|\\s+$"; "")
               | if length > 200 then "..." + .[-197:] else . end),
-    waiting_suggest:($w | .[:60])}' \
+    waiting_suggest:($w | .[:60])}
+   + (if $tp == "" then {} else {topic_suggest:$tp} end)
+   + (if $g == "" then {} else {goal:$g} end)' \
   > "$out.tmp" && mv "$out.tmp" "$out"

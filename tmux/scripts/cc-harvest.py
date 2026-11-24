@@ -13,18 +13,18 @@ scan is done.
 import glob, json, os, re, subprocess, sys, time
 
 HOME = os.path.expanduser("~")
-COCKPIT = os.path.join(HOME, ".claude", "cockpit")
-REFS = os.path.join(COCKPIT, "prs.json")
-USE = os.path.join(COCKPIT, "usage.json")
-STATE = os.path.join(COCKPIT, "pr-status.json")
+HELM = os.path.join(HOME, ".claude", "helm")
+REFS = os.path.join(HELM, "prs.json")
+USE = os.path.join(HELM, "usage.json")
+STATE = os.path.join(HELM, "pr-status.json")
 # What was said, one conversation per file, for `/` to search. A transcript is
 # about 99% tool calls, tool output and thinking; the prose is the 1% worth
 # searching, so the whole corpus greps in about a millisecond.
-TEXT = os.path.join(COCKPIT, "text")
+TEXT = os.path.join(HELM, "text")
 TEXT_AT = os.path.join(TEXT, "offsets.json")
 # Removed conversations stay searchable: "I know I talked about this" is exactly
 # when search earns its keep, and the panel offers to restore what it finds.
-GONE = os.path.join(COCKPIT, "removed")
+GONE = os.path.join(HELM, "removed")
 
 PR_URL = re.compile(r"github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/(\d+)")
 # A conversation's own PR is the one it ran a command against. Scraping every
@@ -54,16 +54,16 @@ STATUS_EVERY = 300      # seconds; ~40 GraphQL points per repo, so keep it unhur
 # every gh call this account makes. Only repos under owners you name get polled:
 # a PR opened against someone else's project turns up in the recent-100 listing
 # rarely and the per-PR backfill for it would cost points every cycle, forever.
-# Per machine, like the cockpit directory: the work laptop's PRs live under the
+# Per machine, like helm directory: the work laptop's PRs live under the
 # company orgs and the personal one's under a username, and a list baked into
 # the script silently stopped the badges on whichever machine it wasn't for.
 # Nothing recorded means no filter, so a fresh clone shows badges rather than
 # quietly hiding them.
 def status_owners():
-    raw = os.environ.get("COCKPIT_PR_OWNERS", "")
+    raw = os.environ.get("HELM_PR_OWNERS", "")
     if not raw:
         try:
-            with open(os.path.expanduser("~/.claude/cockpit/pr-owners")) as fh:
+            with open(os.path.expanduser("~/.claude/helm/pr-owners")) as fh:
                 raw = fh.read()
         except OSError:
             raw = ""

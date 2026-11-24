@@ -3,6 +3,8 @@
 # Debounced and fully detached, so it never delays a turn.
 set -u
 [ -n "${CC_RECAP_CHILD:-}" ] && exit 0
+# The helm lanes main chat finished its turn: stop its spinner (lane-context.py sets it).
+[ "${CC_LANES_MAIN:-}" = 1 ] && rm -f "${LANES_STATE_DIR:-$HOME/.claude/helm}/main-busy"
 
 input=$(cat)
 sid=$(printf '%s' "$input" | jq -r '.session_id // empty')
