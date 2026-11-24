@@ -1,4 +1,4 @@
-# cockpit
+# helm
 
 One view of every Claude conversation: a sidebar you scan, and the conversation
 you picked docked beside it.
@@ -6,11 +6,11 @@ you picked docked beside it.
 ## The split that matters
 
 **nvim shows it, tmux holds it.** Each conversation runs in its own tmux session
-on the default server; the cockpit is a client attached to one of them. Close
+on the default server; helm is a client attached to one of them. Close
 nvim, crash nvim, reboot the terminal — the conversations keep running, and
-reopening the cockpit finds them where they were.
+reopening helm finds them where they were.
 
-**A conversation is a file, not a process.** `~/.claude/cockpit/threads/<id>.json`
+**A conversation is a file, not a process.** `~/.claude/helm/threads/<id>.json`
 is the conversation; the tmux session is only how it happens to be running right
 now. When that dies — crash, reboot, `/exit` — the entry stays, marked parked,
 and opening it resumes from the Claude transcript. This is why a lost tmux server
@@ -20,7 +20,7 @@ costs nothing.
 
 | file        | holds                                                        |
 |-------------|--------------------------------------------------------------|
-| `init.lua`  | the window layout, the key table, the help window, `:Cockpit` |
+| `init.lua`  | the window layout, the key table, the help window, `:Helm` |
 | `view.lua`  | the sidebar: ordering, rendering, every action                |
 | `stage.lua` | the docked terminal, one buffer per conversation              |
 | `host.lua`  | the only thing that talks to `~/.tmux/scripts/cc-host.sh`     |
@@ -29,9 +29,9 @@ costs nothing.
 
 Clicking the sidebar does what the keys do: one click shows a conversation, two
 open it. Because the stage is a terminal, that needs `mouse=a`, so an open
-cockpit takes `'mouse'` over for the session and hands it back — whatever it was
+helm takes `'mouse'` over for the session and hands it back — whatever it was
 — when the last one closes. The cost is that the tmux inside the stage stops
-seeing the mouse while the cockpit is up; scroll it from terminal-normal mode.
+seeing the mouse while helm is up; scroll it from terminal-normal mode.
 
 ## Where the states come from
 

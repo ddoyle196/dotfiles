@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Drop cockpit sessions from the tmux-resurrect snapshot.
+# Drop helm sessions from the tmux-resurrect snapshot.
 #
-# The cockpit owns the lifecycle of every cc_* session: a conversation is a
+# Helm owns the lifecycle of every cc_* session: a conversation is a
 # registry entry, and `cc-host.sh start` is what puts a process behind it.
 # Resurrect captured those panes' *child* command (an mcp server, say) rather
 # than claude, so after a reboot it restored the session NAME with a bare shell

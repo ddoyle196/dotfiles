@@ -1,23 +1,23 @@
 -- The sidebar buffer: what you scan, and everything you can do from it.
-local host = require("cockpit.host")
-local stage = require("cockpit.stage")
+local host = require("helm.host")
+local stage = require("helm.stage")
 
 local M = { buf = nil, win = nil, order = "act", folded = true, rows = {}, sel = nil }
 
 -- Five states, five shapes. Shape carries the meaning as much as colour does,
 -- so the column still reads without relying on hue.
 local STATE = {
-  answer  = { rank = 1, icon = "●", hl = "CockpitAnswer",  name = "answer this" },
-  running = { rank = 2, icon = "◐", hl = "CockpitRunning", name = "running" },
-  pickup  = { rank = 3, icon = "○", hl = "CockpitPickup",  name = "pick this up" },
-  waiting = { rank = 4, icon = "◌", hl = "CockpitWaiting", name = "waiting on someone" },
-  done    = { rank = 5, icon = "✓", hl = "CockpitDone",    name = "finished" },
-  dead    = { rank = 6, icon = "·", hl = "CockpitDone",    name = "process gone" },
+  answer  = { rank = 1, icon = "●", hl = "HelmAnswer",  name = "answer this" },
+  running = { rank = 2, icon = "◐", hl = "HelmRunning", name = "running" },
+  pickup  = { rank = 3, icon = "○", hl = "HelmPickup",  name = "pick this up" },
+  waiting = { rank = 4, icon = "◌", hl = "HelmWaiting", name = "waiting on someone" },
+  done    = { rank = 5, icon = "✓", hl = "HelmDone",    name = "finished" },
+  dead    = { rank = 6, icon = "·", hl = "HelmDone",    name = "process gone" },
 }
 
 local ORDERS = { "act", "topic", "age" }
 local ORDER_NAME = { act = "actionability", topic = "topic", age = "recency" }
-local NS = vim.api.nvim_create_namespace("cockpit")
+local NS = vim.api.nvim_create_namespace("helm")
 
 M.STATE = STATE
 
@@ -100,14 +100,14 @@ function M.render()
   end
 
   push(("  order: %s   %s"):format(ORDER_NAME[M.order], M.folded and "finished folded" or "finished shown"),
-    "CockpitHeader")
+    "HelmHeader")
   push("", nil)
 
   local topic_seen = nil
   local function emit(row, dim)
     if M.order == "topic" and row.topic ~= topic_seen then
       topic_seen = row.topic
-      push(("  %s %s"):format(topic_state(M.rows, row.topic).icon, row.topic), "CockpitTopic")
+      push(("  %s %s"):format(topic_state(M.rows, row.topic).icon, row.topic), "HelmTopic")
     end
     local s = st(row)
     -- Two glyphs, two questions: is it running, and does it want me.
@@ -117,9 +117,9 @@ function M.render()
       local pad = math.max(1, width - vim.fn.strdisplaywidth(head) - #a - 2)
       head = head .. string.rep(" ", pad) .. a
     end
-    push(head, dim and "CockpitDone" or s.hl, row)
+    push(head, dim and "HelmDone" or s.hl, row)
     for _, l in ipairs(wrap(row.recap or "", inner)) do
-      push("       " .. l, dim and "CockpitDone" or "CockpitRecap", row)
+      push("       " .. l, dim and "HelmDone" or "HelmRecap", row)
     end
   end
 
@@ -128,7 +128,7 @@ function M.render()
   if #fin > 0 then
     push("", nil)
     if M.folded then
-      push(("  › %d finished"):format(#fin), "CockpitDone")
+      push(("  › %d finished"):format(#fin), "HelmDone")
       M.fold_line = #lines
     else
       for _, row in ipairs(fin) do emit(row, true) end
@@ -136,8 +136,8 @@ function M.render()
   end
 
   if #live == 0 and #fin == 0 then
-    push("  nothing yet — press t to start a topic", "CockpitDone")
-    push("  or i to bring back a past conversation", "CockpitDone")
+    push("  nothing yet — press t to start a topic", "HelmDone")
+    push("  or i to bring back a past conversation", "HelmDone")
   end
 
   vim.bo[M.buf].modifiable = true
@@ -228,12 +228,12 @@ function M.new_thread()
   end)
 end
 
--- Bring back a Claude conversation that the cockpit has never held: the way
+-- Bring back a Claude conversation that helm has never held: the way
 -- back in after a crash, and the way to pull in history worth keeping.
 function M.import()
   local found = host.scan(60)
   if #found == 0 then
-    return vim.notify("cockpit: no unattached conversations in the last 60 days", vim.log.levels.INFO)
+    return vim.notify("helm: no unattached conversations in the last 60 days", vim.log.levels.INFO)
   end
   local items = {}
   for _, r in ipairs(found) do
@@ -275,7 +275,7 @@ end
 -- its place in the list stay, and opening it resumes where it left off.
 function M.park()
   local row = M.current(); if not row then return end
-  if row.cold then return vim.notify("cockpit: already parked", vim.log.levels.INFO) end
+  if row.cold then return vim.notify("helm: already parked", vim.log.levels.INFO) end
   stage.forget(row.id)
   host.stop(row.id)
   M.refresh()
@@ -284,7 +284,7 @@ end
 function M.delete_thread()
   local row = M.current(); if not row then return end
   local ok = vim.fn.confirm(
-    ("Remove this conversation?\n\n  %s  ·  %s\n\nIt leaves the cockpit for good. Press x instead to park it."):format(row.topic, row.label),
+    ("Remove this conversation?\n\n  %s  ·  %s\n\nIt leaves helm for good. Press x instead to park it."):format(row.topic, row.label),
     "&Cancel\n&Remove", 1, "Question")
   if ok ~= 2 then return end
   stage.forget(row.id)
@@ -298,7 +298,7 @@ function M.delete_topic()
   local names = {}
   for _, v in ipairs(victims) do table.insert(names, "  - " .. v.label) end
   local ok = vim.fn.confirm(
-    ("Remove topic %q and all %d conversations?\n\n%s\n\nEvery one listed leaves the cockpit for good.")
+    ("Remove topic %q and all %d conversations?\n\n%s\n\nEvery one listed leaves helm for good.")
       :format(row.topic, #victims, table.concat(names, "\n")),
     "&Cancel\n&Remove", 1, "Question")
   if ok ~= 2 then return end

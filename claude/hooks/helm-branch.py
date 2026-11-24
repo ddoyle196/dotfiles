@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Give `/branch` a second row in the cockpit instead of losing the first one.
+"""Give `/branch` a second row in helm instead of losing the first one.
 
 `/branch` copies the conversation and moves you into the copy, in the same pane.
-The cockpit follows that move on its own -- cc-list.py rebinds a row to whatever
+Helm follows that move on its own -- cc-list.py rebinds a row to whatever
 session id the live process reports -- so without this the train of thought you
 branched away from vanishes from the list. It is still on disk, but finding it
 means `scan` and an import, which is exactly the friction that stops you
@@ -23,7 +23,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-THREADS = Path.home() / ".claude" / "cockpit" / "threads"
+THREADS = Path.home() / ".claude" / "helm" / "threads"
 HOST = Path.home() / ".tmux" / "scripts" / "cc-host.sh"
 # Mirrors Claude Code's own `(Branch)` / `(Branch 2)` titles, lowercased to sit
 # with the hand-typed labels around it. Also how a title Claude derived on its
@@ -35,7 +35,7 @@ MAX_LABEL = 48
 
 
 def tmux_session() -> str:
-    """The cockpit id of the pane this hook is running in, or "" if it is not in one."""
+    """The helm id of the pane this hook is running in, or "" if it is not in one."""
     pane = os.environ.get("TMUX_PANE")
     if not pane or not os.environ.get("TMUX"):
         return ""
@@ -102,7 +102,7 @@ def typed_name(transcript: str) -> str:
 
 
 def branch_label(label: str) -> str:
-    """"cockpit" -> "cockpit (branch)" -> "cockpit (branch 2)"."""
+    """"helm" -> "helm (branch)" -> "helm (branch 2)"."""
     m = SUFFIX.search(label)
     if not m:
         return f"{label} (branch)" if label else "branch"

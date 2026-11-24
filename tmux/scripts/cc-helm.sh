@@ -1,10 +1,10 @@
 #!/bin/zsh
-# Open the cockpit: one session holding the list and the conversation you picked,
+# Open helm: one session holding the list and the conversation you picked,
 # built once and reused, so coming back lands you where you were.
 #   --ensure   build it if missing, then stop (tmux does the switching)
 #   --heal     grow back a pane that was closed (tmux.conf runs it on every close)
 emulate -L zsh
-S=cockpit
+S=helm
 DIR="$HOME/.tmux/scripts"
 source "$HOME/.tmux/scripts/lib/cc-dir.sh"
 CWD=$(_cc_dir)
@@ -29,7 +29,7 @@ keybar() {
       "#($DIR/cc-keys.sh format $i #{client_width})"
   done
   # A narrower client needs more rows, so recount whenever the size changes.
-  tmux set-hook -t "$sess" client-resized "run-shell '$DIR/cc-cockpit.sh --keybar'"
+  tmux set-hook -t "$sess" client-resized "run-shell '$DIR/cc-helm.sh --keybar'"
 }
 
 panes() { tmux list-panes -t "=$S:" -F '#{pane_id}' 2>/dev/null }
@@ -77,7 +77,7 @@ if ! tmux has-session -t "=$S" 2>/dev/null; then
 
   # Pane ids, not indexes: pane-base-index differs between configs and getting
   # it wrong silently resizes the conversation instead of the list.
-  list=$(tmux new-session -d -P -F '#{pane_id}' -s "$S" -n cockpit -c "$CWD" \
+  list=$(tmux new-session -d -P -F '#{pane_id}' -s "$S" -n helm -c "$CWD" \
            -x "$size[1]" -y "$size[2]" "$DIR/cc-run-panel.sh")
   stage=$(tmux split-window -h -P -F '#{pane_id}' -t "$list" -c "$CWD" "$DIR/cc-stage.sh")
   tmux set -t "$S" @list_pane  "$list"
@@ -92,7 +92,7 @@ if ! tmux has-session -t "=$S" 2>/dev/null; then
   tmux select-pane -t "$list"
 fi
 
-# An existing cockpit may predate the status-line legend, or still carry the old
+# An existing helm may predate the status-line legend, or still carry the old
 # pane version of it. Heal rather than making you tear the session down.
 old=$(tmux show -t "$S" -v @keys_pane 2>/dev/null)
 if [[ -n $old ]]; then

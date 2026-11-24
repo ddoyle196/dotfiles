@@ -7,7 +7,7 @@ import glob, json, os, sys, time
 
 REG, IDX = sys.argv[1], sys.argv[2]
 HOME = os.path.expanduser("~")
-COCKPIT = os.path.dirname(REG.rstrip("/"))
+HELM = os.path.dirname(REG.rstrip("/"))
 TOPICS = sys.argv[3] if len(sys.argv) > 3 else ""
 
 # Which PRs each conversation touched, and how they are doing. Harvested from
@@ -19,8 +19,8 @@ def _load(path, default):
     except Exception:
         return default
 
-PR_REFS = _load(os.path.join(COCKPIT, "prs.json"), {})
-PR_STATE = _load(os.path.join(COCKPIT, "pr-status.json"), {})
+PR_REFS = _load(os.path.join(HELM, "prs.json"), {})
+PR_STATE = _load(os.path.join(HELM, "pr-status.json"), {})
 
 def pr_badges(tid):
     """Only PRs the conversation worked on, best-attributed first."""

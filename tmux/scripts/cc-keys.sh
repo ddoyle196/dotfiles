@@ -1,5 +1,5 @@
 #!/bin/zsh
-# The cockpit key legend, rendered into the session's status line rather than a
+# Helm key legend, rendered into the session's status line rather than a
 # pane of its own: a pane costs a border row on top of its content, and that row
 # is a row of nothing.
 #

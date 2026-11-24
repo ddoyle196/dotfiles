@@ -1,18 +1,19 @@
 #!/bin/sh
-# The cockpit is a view over tmux-hosted conversations; this is just the door.
-#   --nvim    open the same registry in the nvim cockpit
-#   doctor    check this machine has everything the cockpit needs
-#   web       open the browser cockpit at http://localhost:7477, starting it if needed
-#   web stop  stop the browser cockpit
+# Helm is a view over tmux-hosted conversations; this is just the door.
+#   --nvim    open the same registry in nvim (:Helm)
+#   doctor    check this machine has everything helm needs
+#   web       open helm in the browser at http://localhost:7477, starting it if needed
+#   web stop  stop the browser view
+#   lanes     open the lanes view: lanes list beside the main chat
 WEB_URL="http://localhost:7477"
-WEB_LABEL="com.ddoyle.cockpit-web"
+WEB_LABEL="com.ddoyle.helm-web"
 WEB_PLIST="$HOME/Library/LaunchAgents/$WEB_LABEL.plist"
-WEB_LOG="$HOME/Library/Logs/cockpit-web.log"
-[ -d "$HOME/Library/Logs" ] || WEB_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/cockpit-web.log"
+WEB_LOG="$HOME/Library/Logs/helm-web.log"
+[ -d "$HOME/Library/Logs" ] || WEB_LOG="${XDG_STATE_HOME:-$HOME/.local/state}/helm-web.log"
 
-# Anything can answer on the port; only the cockpit server names itself.
+# Anything can answer on the port; only the helm server names itself.
 web_up() {
-  curl -s -o /dev/null -D - -m 1 "$WEB_URL/" 2>/dev/null | grep -qi '^server: cockpit'
+  curl -s -o /dev/null -D - -m 1 "$WEB_URL/" 2>/dev/null | grep -qi '^server: helm'
 }
 
 web_holder() {
@@ -21,17 +22,17 @@ web_holder() {
   done | head -1
 }
 
-# The pid listening on the port, but only if it is the cockpit server: the port
+# The pid listening on the port, but only if it is the helm server: the port
 # is just a number, and stop must never kill whatever else took it.
 web_pid() {
   for p in $(lsof -ti tcp:7477 -sTCP:LISTEN 2>/dev/null); do
-    ps -o command= -p "$p" 2>/dev/null | grep -q 'cockpit-web/server.py' && echo "$p"
+    ps -o command= -p "$p" 2>/dev/null | grep -q 'helm-web/server.py' && echo "$p"
   done
 }
 
 start_by_hand() {
   mkdir -p "$(dirname "$WEB_LOG")"
-  nohup python3 "$HOME/.tmux/scripts/cockpit-web/server.py" >>"$WEB_LOG" 2>&1 &
+  nohup python3 "$HOME/.tmux/scripts/helm-web/server.py" >>"$WEB_LOG" 2>&1 &
 }
 
 web_start() {
@@ -61,13 +62,13 @@ web_start() {
     sleep 0.1
     i=$((i + 1))
   done
-  echo "The web cockpit did not start. See $WEB_LOG." >&2
+  echo "Helm web did not start. See $WEB_LOG." >&2
   return 1
 }
 
 web_stop() {
   # KeepAlive restarts a killed server at once, so a loaded agent has to be
-  # unloaded instead. It loads again at the next login or `cockpit web`.
+  # unloaded instead. It loads again at the next login or `helm web`.
   if command -v launchctl >/dev/null 2>&1 &&
       launchctl print "gui/$(id -u)/$WEB_LABEL" >/dev/null 2>&1; then
     launchctl bootout "gui/$(id -u)/$WEB_LABEL"
@@ -76,11 +77,12 @@ web_stop() {
   [ -n "$pids" ] && { kill $pids; sleep 0.3; }
   other=$(web_holder)
   [ -n "$other" ] && { echo "Port 7477 is still held by: $other" >&2; return 1; }
-  echo "The web cockpit is stopped."
+  echo "Helm web is stopped."
 }
 
 case "${1:-}" in
-  --nvim) exec nvim -c Cockpit ;;
+  --nvim) exec nvim -c Helm ;;
+  lanes)  shift; exec "$HOME/.tmux/scripts/lanes/lanes-session.sh" "$@" ;;
   doctor) ;;
   web)
     if [ "${2:-}" = stop ]; then web_stop; exit; fi
@@ -89,7 +91,7 @@ case "${1:-}" in
     elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$WEB_URL" >/dev/null 2>&1 || echo "$WEB_URL"
     else echo "$WEB_URL"; fi
     exit ;;
-  *)      exec "$HOME/.tmux/scripts/cc-cockpit.sh" ;;
+  *)      exec "$HOME/.tmux/scripts/cc-helm.sh" ;;
 esac
 
 fail=0
@@ -104,7 +106,7 @@ done
 command -v gh >/dev/null 2>&1 && ok "gh (optional)" || warn_ "gh missing: no pull-request badges"
 
 echo "Files"
-for f in cc-panel.sh cc-host.sh cc-cockpit.sh cc-list.py cc-harvest.py lib/cc-dir.sh; do
+for f in cc-panel.sh cc-host.sh cc-helm.sh cc-list.py cc-harvest.py lib/cc-dir.sh; do
   [ -e "$HOME/.tmux/scripts/$f" ] && ok "$f" || bad "missing ~/.tmux/scripts/$f - run setup.sh"
 done
 for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py; do
@@ -123,7 +125,7 @@ else
 fi
 
 echo "State"
-for d in "$HOME/.claude/cockpit/threads" "$HOME/.claude/session-index"; do
+for d in "$HOME/.claude/helm/threads" "$HOME/.claude/session-index"; do
   [ -d "$d" ] && ok "${d#$HOME/}" || bad "missing $d"
 done
 
@@ -134,18 +136,18 @@ if [ -r "$HOME/.tmux/scripts/lib/cc-dir.sh" ]; then
   [ -d "$d" ] && ok "new conversations start in $d" ||
     bad "configured directory does not exist: $d"
 else
-  bad "cannot resolve the cockpit directory"
+  bad "cannot resolve the helm directory"
 fi
 
 echo "Web"
 held=$(web_holder)
-if web_up; then ok "the web cockpit answers on $WEB_URL"
+if web_up; then ok "helm web answers on $WEB_URL"
 elif [ -n "$held" ]; then bad "port 7477 is held by something else: $held"
-else bad "nothing answers on $WEB_URL - run cockpit web"; fi
+else bad "nothing answers on $WEB_URL - run helm web"; fi
 
 echo "Tmux"
-grep -q 'cc-cockpit.sh' "$HOME/.tmux.conf" 2>/dev/null &&
-  ok "prefix + a is bound" || bad "~/.tmux.conf has no cockpit binding"
+grep -q 'cc-helm.sh' "$HOME/.tmux.conf" 2>/dev/null &&
+  ok "prefix + a is bound" || bad "~/.tmux.conf has no helm binding"
 
 echo
 [ "$fail" -eq 0 ] && echo "All good." || echo "$fail problem(s) found."

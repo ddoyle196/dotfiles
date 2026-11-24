@@ -1,6 +1,6 @@
 #!/bin/zsh
-# The cockpit, drawn in a tmux pane: the list on the left, the conversation you
-# picked on the right. Same registry and states as the nvim cockpit — only the
+# Helm, drawn in a tmux pane: the list on the left, the conversation you
+# picked on the right. Same registry and states as the nvim helm — only the
 # drawing differs, so the two stay in step by construction.
 emulate -L zsh
 setopt no_nomatch
@@ -10,7 +10,7 @@ zmodload zsh/system      # sysparams[pid], which unlike $$ differs in a subshell
 HOST="$HOME/.tmux/scripts/cc-host.sh"
 STAGE="$HOME/.tmux/scripts/cc-stage.sh"
 SEARCHER="$HOME/.tmux/scripts/cc-search.py"
-REG="$HOME/.claude/cockpit/threads"
+REG="$HOME/.claude/helm/threads"
 CACHE="${TMPDIR:-/tmp}/cc-panel-$UID.json"
 LOG="${TMPDIR:-/tmp}/cc-panel-$UID.log"
 
@@ -174,8 +174,8 @@ fi
 reload() {
   kill $REFRESHER 2>/dev/null
   stty echo 2>/dev/null
-  # Re-fit the status-line legend too, so one reload refreshes the whole cockpit.
-  tmux run-shell -b "$HOME/.tmux/scripts/cc-cockpit.sh --keybar" 2>/dev/null
+  # Re-fit the status-line legend too, so one reload refreshes the whole helm.
+  tmux run-shell -b "$HOME/.tmux/scripts/cc-helm.sh --keybar" 2>/dev/null
   print -n $'\e[?25h\e[?1049l'
   exec "$SELF" --state "${CUR}:${TOP}:${ORDER}:${FOLDED}:${FOLLOW}:${VIEW}"
 }
@@ -292,7 +292,7 @@ run_search() {
 }
 
 # Subsequence matching over "label topic", turned into one glob so a keystroke
-# costs no forks: "rmtco" finds "remote tmux control".
+# costs no forks: "apico" finds "API control via MCP".
 matches() {   # matches <row>
   [[ -z $FILTER ]] && return 0
   # Searching replaces the name match rather than adding to it: a hit is a hit,
@@ -314,8 +314,8 @@ name_matches() {   # name_matches <row>
   [[ "${r_label[$1]:l} ${r_topic[$1]:l}" == ${~pat} ]]
 }
 
-# A subsequence match alone lands on the wrong row: "rmt" finds the r, m and t
-# scattered through an unrelated label before it finds the RMT one. The list
+# A subsequence match alone lands on the wrong row: "api" finds the a, p and i
+# scattered through an unrelated label before it finds the API one. The list
 # order stays put — only the cursor prefers the better match.
 match_rank() {   # match_rank <row> -> MRANK, lower is better
   # cc-search.py already ranked the hits, so in search mode the cursor should
@@ -330,7 +330,7 @@ match_rank() {   # match_rank <row> -> MRANK, lower is better
 }
 
 # A removed conversation found by searching is brought back before it is opened,
-# because nothing else in the list can act on one. Asking first: the cockpit's
+# because nothing else in the list can act on one. Asking first: helm's
 # other destructive-looking keys do, and restoring silently would leave a row you
 # did not put there.
 restore_row() {   # restore_row <cc id> -> RESTORED, nonzero means it stayed removed
@@ -1003,7 +1003,7 @@ sweep_tick() {
   else                          note "filed ${filed} finished — v shows them"; fi
 }
 
-# Only spin while something is actually working: an idle cockpit keeps its long
+# Only spin while something is actually working: an idle helm keeps its long
 # wait and costs nothing, and the diff renderer means a turning icon rewrites one
 # character per running row rather than repainting the list.
 spin_tick() {
@@ -1278,7 +1278,7 @@ POLLED_AT=0
 while true; do
   key=""
   # A short wait while the pane owes the cursor a conversation, so following
-  # feels immediate; a long one otherwise, so an idle cockpit stays cheap.
+  # feels immediate; a long one otherwise, so an idle helm stays cheap.
   waitfor=1
   (( ${#SPIN_AT_LINE} )) && waitfor=$SPIN_EVERY
   (( FOLLOW && NROWS )) && [[ "${r_id[$CUR]}:${r_cold[$CUR]}" != $SHOWN ]] && waitfor=0.04
@@ -1305,7 +1305,7 @@ while true; do
         if zsh -n "$SELF" 2>/dev/null; then
           reload
         else
-          SELF_MTIME=$mt; SETTLING=""; note "cockpit script does not parse — not reloading"
+          SELF_MTIME=$mt; SETTLING=""; note "helm script does not parse — not reloading"
         fi
       else
         SETTLING=$mt
@@ -1395,10 +1395,10 @@ while true; do
            SEL_ID=""; refresh_now; load; note "removed"
          else MSG=""; fi } ;;
     '<'|'>')
-      local w=$(tmux show -t cockpit -v @list_width 2>/dev/null); w=${w:-54}
+      local w=$(tmux show -t helm -v @list_width 2>/dev/null); w=${w:-54}
       [[ $key == '>' ]] && (( w += 4 )) || (( w -= 4 ))
       (( w < 30 )) && w=30
-      tmux set -t cockpit @list_width "$w"
+      tmux set -t helm @list_width "$w"
       tmux resize-pane -t "$TMUX_PANE" -x "$w"
       DIRTY=1
       ;;

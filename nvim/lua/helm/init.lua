@@ -1,8 +1,8 @@
--- Cockpit: sidebar of your Claude conversations, with the current one docked
+-- Helm: sidebar of your Claude conversations, with the current one docked
 -- beside it. See README.md in this folder for how the pieces divide.
-local view = require("cockpit.view")
-local stage = require("cockpit.stage")
-local host = require("cockpit.host")
+local view = require("helm.view")
+local stage = require("helm.stage")
+local host = require("helm.host")
 
 local M = {}
 
@@ -20,7 +20,7 @@ local KEYS = {
   { "<LeftMouse>",   view.click,     "show the one you clicked",  show = "click" },
   { "<2-LeftMouse>", view.dbl_click, "open the one you clicked",  show = "2 clicks" },
   { "R",     view.refresh,     "refresh now" },
-  { "q",     "close",          "close the cockpit" },
+  { "q",     "close",          "close helm" },
   { "?",     "help",           "this list" },
   { group = "Arrange" },
   { "o",     view.cycle_order, "cycle order: actionable / topic / recent" },
@@ -38,18 +38,18 @@ local KEYS = {
   { "D",     view.delete_topic,  "remove the whole topic" },
 }
 
--- Colour is never hardcoded: linking to the semantic groups means the cockpit
+-- Colour is never hardcoded: linking to the semantic groups means helm
 -- follows whatever colorscheme is loaded, today and after any switch.
 local function highlights()
   local link = function(from, to) vim.api.nvim_set_hl(0, from, { link = to, default = true }) end
-  link("CockpitAnswer",  "DiagnosticError")
-  link("CockpitRunning", "DiagnosticWarn")
-  link("CockpitPickup",  "DiagnosticInfo")
-  link("CockpitWaiting", "Comment")
-  link("CockpitDone",    "NonText")
-  link("CockpitRecap",   "Comment")
-  link("CockpitTopic",   "Title")
-  link("CockpitHeader",  "NonText")
+  link("HelmAnswer",  "DiagnosticError")
+  link("HelmRunning", "DiagnosticWarn")
+  link("HelmPickup",  "DiagnosticInfo")
+  link("HelmWaiting", "Comment")
+  link("HelmDone",    "NonText")
+  link("HelmRecap",   "Comment")
+  link("HelmTopic",   "Title")
+  link("HelmHeader",  "NonText")
 end
 
 local ICON_ORDER = { "answer", "running", "pickup", "waiting", "done", "dead" }
@@ -60,7 +60,7 @@ local function entry(key, text)
 end
 
 function M.help()
-  local lines = { "", "  Cockpit" }
+  local lines = { "", "  Helm" }
   for _, k in ipairs(KEYS) do
     if k.group then
       table.insert(lines, "")
@@ -102,7 +102,7 @@ local function keymaps(buf)
       local fn = k[2]
       if fn == "close" then fn = function() vim.cmd("tabclose") end end
       if fn == "help" then fn = M.help end
-      vim.keymap.set("n", k[1], fn, { buffer = buf, nowait = true, silent = true, desc = "Cockpit: " .. k[3] })
+      vim.keymap.set("n", k[1], fn, { buffer = buf, nowait = true, silent = true, desc = "Helm: " .. k[3] })
     end
   end
 end
@@ -110,13 +110,13 @@ end
 -- The stage is a terminal, and under the default 'mouse' a terminal keeps the
 -- clicks for itself: clicking the sidebar mid-sentence would only move focus.
 -- "a" gives every click to nvim instead. The inner tmux gives up its own mouse
--- handling for as long as a cockpit is open, and has it back the moment the
+-- handling for as long as helm is open, and has it back the moment the
 -- last one closes.
 local saved_mouse = nil
 
-local function open_cockpits(excluding)
+local function open_helms(excluding)
   return vim.tbl_filter(function(b)
-    return b ~= excluding and vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == "cockpit"
+    return b ~= excluding and vim.api.nvim_buf_is_valid(b) and vim.bo[b].filetype == "helm"
   end, vim.api.nvim_list_bufs())
 end
 
@@ -126,7 +126,7 @@ local function claim_mouse(buf)
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = buf,
     callback = function()
-      if saved_mouse == nil or #open_cockpits(buf) > 0 then return end
+      if saved_mouse == nil or #open_helms(buf) > 0 then return end
       vim.o.mouse, saved_mouse = saved_mouse, nil
     end,
   })
@@ -143,7 +143,7 @@ function M.open()
   vim.api.nvim_win_set_buf(side_win, buf)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype = "cockpit"
+  vim.bo[buf].filetype = "helm"
   vim.bo[buf].modifiable = false
   vim.wo[side_win].number = false
   vim.wo[side_win].relativenumber = false
@@ -162,7 +162,7 @@ function M.open()
   claim_mouse(buf)
   view.refresh()
 
-  local grp = vim.api.nvim_create_augroup("Cockpit", { clear = true })
+  local grp = vim.api.nvim_create_augroup("Helm", { clear = true })
   local timer = vim.uv.new_timer()
   timer:start(M.config.refresh_ms, M.config.refresh_ms, vim.schedule_wrap(function()
     if vim.api.nvim_buf_is_valid(buf) then view.refresh() else timer:stop() end
@@ -173,7 +173,7 @@ function M.open()
   })
 end
 
--- Reaching the cockpit's actions from anywhere, without it being open first.
+-- Reaching helm's actions from anywhere, without it being open first.
 local function ensure_open()
   if not (view.win and vim.api.nvim_win_is_valid(view.win)) then M.open() end
 end
@@ -190,13 +190,13 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", defaults, opts or {})
   highlights()
   vim.api.nvim_create_autocmd("ColorScheme", { callback = highlights })
-  vim.api.nvim_create_user_command("Cockpit", function(a)
+  vim.api.nvim_create_user_command("Helm", function(a)
     local action = M.actions[a.args ~= "" and a.args or "open"]
-    if not action then return vim.notify("cockpit: no action " .. a.args, vim.log.levels.ERROR) end
+    if not action then return vim.notify("helm: no action " .. a.args, vim.log.levels.ERROR) end
     action()
   end, {
     nargs = "?",
-    desc = "Claude cockpit",
+    desc = "Helm: Claude conversations",
     complete = function() return vim.tbl_keys(M.actions) end,
   })
 end

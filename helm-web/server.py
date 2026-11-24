@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Local web view of the conversation cockpit.
+"""Local web view of the Helm conversations.
 
 Serves index.html and a small JSON API over the same registry the tmux panel
-reads (`cc-host.sh list`), plus the facts only transcripts carry: when Daniel
+reads (`cc-host.sh list`), plus the facts only transcripts carry: when the user
 last typed into a conversation, and the checkpoints it passed through.
 
 Bound to 127.0.0.1. Every API call needs the token baked into the page, and a
@@ -52,8 +52,8 @@ TRANSCRIPT_MISS_TTL = 60
 # \Z, not $: $ also matches before a trailing newline.
 CONV_ID = re.compile(r"^cc_[0-9a-f]{1,32}\Z")
 TOKEN_RE = re.compile(r"^[0-9a-f]{32}\Z")
-TOKEN_MARK = "__COCKPIT_TOKEN__"
-NONCE_MARK = "__COCKPIT_NONCE__"
+TOKEN_MARK = "__HELM_TOKEN__"
+NONCE_MARK = "__HELM_NONCE__"
 
 
 def clip(text, n=TEXT_MAX):
@@ -86,7 +86,7 @@ def save_json(path, data):
 # ---------------------------------------------------------------- transcripts
 
 def typed_text(obj):
-    """What Daniel typed on this line, or None when it is not a typed message."""
+    """What the user typed on this line, or None when it is not a typed message."""
     if obj.get("type") != "user" or obj.get("isMeta") or obj.get("isCompactSummary"):
         return None
     if "toolUseResult" in obj:
@@ -309,7 +309,7 @@ class Transcript:
 
 # ---------------------------------------------------------------- the model
 
-class Cockpit:
+class Helm:
     def __init__(self, host_cmd, state_dir, projects, index):
         self.host_cmd = host_cmd
         self.state_dir = state_dir
@@ -345,7 +345,7 @@ class Cockpit:
             # Any failure, not just the expected ones: a flag left set would
             # stop every later refresh and freeze the page on old data.
             except Exception as err:
-                sys.stderr.write("cockpit-web: refresh failed: %r\n" % err)
+                sys.stderr.write("helm-web: refresh failed: %r\n" % err)
             finally:
                 with self.list_lock:
                     self.refreshing = False
@@ -357,7 +357,7 @@ class Cockpit:
             if not isinstance(entries, list):
                 raise ValueError("list did not return an array")
         except (OSError, ValueError, subprocess.SubprocessError) as err:
-            sys.stderr.write("cockpit-web: list failed: %s\n" % err)
+            sys.stderr.write("helm-web: list failed: %s\n" % err)
             return
         for e in entries:
             self._last_user_at(e)
@@ -656,7 +656,7 @@ ACTIONS = {"send", "resume", "file", "unfile", "block", "unblock", "seen"}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "cockpit"
+    server_version = "helm"
     sys_version = ""
     protocol_version = "HTTP/1.1"
     timeout = 10
@@ -666,8 +666,8 @@ class Handler(BaseHTTPRequestHandler):
             BaseHTTPRequestHandler.log_message(self, fmt, *args)
 
     @property
-    def cockpit(self):
-        return self.server.cockpit
+    def helm(self):
+        return self.server.helm
 
     def _send(self, code, body, ctype="application/json; charset=utf-8", csp=None):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -697,9 +697,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Host", "") not in self.server.allowed_hosts:
             raise ApiError(403, "This server only answers to localhost.")
         if api:
-            given = self.headers.get("X-Cockpit-Token", "")
+            given = self.headers.get("X-Helm-Token", "")
             if not secrets.compare_digest(given.encode(), self.server.token.encode()):
-                raise ApiError(403, "Missing or wrong cockpit token.")
+                raise ApiError(403, "Missing or wrong helm token.")
 
     def _body(self):
         ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -745,12 +745,12 @@ class Handler(BaseHTTPRequestHandler):
             if path in ("/", "/index.html"):
                 return self._page()
             if path == "/api/state":
-                return self._send(200, self.cockpit.state())
+                return self._send(200, self.helm.state())
             if path == "/api/tidy":
-                return self._send(200, self.cockpit.tidy())
+                return self._send(200, self.helm.tidy())
             m = re.match(r"^/api/conv/([^/]+)$", path)
             if m:
-                found = self.cockpit.detail(m.group(1)) if CONV_ID.match(m.group(1)) else None
+                found = self.helm.detail(m.group(1)) if CONV_ID.match(m.group(1)) else None
                 if found is None:
                     raise ApiError(404, "No conversation with that id.")
                 return self._send(200, found)
@@ -764,7 +764,7 @@ class Handler(BaseHTTPRequestHandler):
             self._guard(api=True)
             body = self._body()
             if path == "/api/visit":
-                self.cockpit.visit()
+                self.helm.visit()
                 return self._send(200, {"ok": True})
             if path == "/api/tidy":
                 return self._send(200, self._tidy(body))
@@ -777,19 +777,19 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(err.code, str(err))
 
     def _known(self, cid):
-        if not CONV_ID.match(cid) or self.cockpit.find(cid, time.time()) is None:
+        if not CONV_ID.match(cid) or self.helm.find(cid, time.time()) is None:
             raise ApiError(404, "No conversation with that id.")
 
     def _run(self, args, timeout=30):
         try:
-            proc = self.cockpit.host(*args, timeout=timeout)
+            proc = self.helm.host(*args, timeout=timeout)
         except subprocess.TimeoutExpired:
-            raise ApiError(409, "The cockpit took too long to %s." % args[0])
+            raise ApiError(409, "Helm took too long to %s." % args[0])
         except OSError as err:
-            raise ApiError(409, "Could not run the cockpit: %s." % err.strerror)
+            raise ApiError(409, "Could not run helm: %s." % err.strerror)
         if proc.returncode != 0:
             why = " ".join((proc.stderr or "").split())[:200]
-            raise ApiError(409, "The cockpit could not %s%s" % (args[0], (": " + why) if why else "."))
+            raise ApiError(409, "Helm could not %s%s" % (args[0], (": " + why) if why else "."))
 
     def _act(self, cid, action, body):
         self._known(cid)
@@ -818,7 +818,7 @@ class Handler(BaseHTTPRequestHandler):
             self._run(["unblock", cid])
         elif action == "seen":
             self._run(["seen", cid])
-        self.cockpit.invalidate()
+        self.helm.invalidate()
         return {"ok": True}
 
     def _tidy(self, body):
@@ -827,11 +827,11 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "file must be a list of conversation ids.")
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
             raise ApiError(400, "drop_topics must be a list of topic names.")
-        known = {c["id"] for c in self.cockpit.convs(time.time())}
+        known = {c["id"] for c in self.helm.convs(time.time())}
         unknown = [i for i in ids if i not in known or not CONV_ID.match(i)]
         if unknown:
             raise ApiError(404, "No conversation with id %s." % unknown[0])
-        empty = set(empty_topics(self.cockpit.current()))
+        empty = set(empty_topics(self.helm.current()))
         busy = [n for n in names if n not in empty]
         if busy:
             raise ApiError(400, "Topic %s still has conversations in it." % busy[0])
@@ -844,7 +844,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._run(["topic-rm", name])
                 dropped += 1
         finally:
-            self.cockpit.invalidate()
+            self.helm.invalidate()
         return {"ok": True, "filed": filed, "dropped": dropped}
 
     def _page(self):
@@ -882,22 +882,22 @@ def read_token(path):
     return token
 
 
-def make_server(cockpit, token, port, page, verbose=False):
+def make_server(helm, token, port, page, verbose=False):
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     bound = httpd.server_address[1]
     httpd.allowed_hosts = {"localhost:%d" % bound, "127.0.0.1:%d" % bound}
-    httpd.cockpit = cockpit
+    httpd.helm = helm
     httpd.token = token
     httpd.page = page
     httpd.verbose = verbose
     return httpd
 
 
-def default_cockpit():
-    return Cockpit(
-        host_cmd=os.environ.get("COCKPIT_HOST_CMD") or os.path.join(HOME, ".tmux/scripts/cc-host.sh"),
-        state_dir=os.path.join(HOME, ".claude/cockpit/web"),
+def default_helm():
+    return Helm(
+        host_cmd=os.environ.get("HELM_HOST_CMD") or os.path.join(HOME, ".tmux/scripts/cc-host.sh"),
+        state_dir=os.path.join(HOME, ".claude/helm/web"),
         projects=os.path.join(HOME, ".claude/projects"),
         index=os.path.join(HOME, ".claude/session-index"),
     )
@@ -936,7 +936,7 @@ def check():
         results.append(bool(cond))
         print("%s  %s%s" % ("PASS" if cond else "FAIL", name, ("  (" + detail + ")") if detail and not cond else ""))
 
-    root = tempfile.mkdtemp(prefix="cockpit-check-")
+    root = tempfile.mkdtemp(prefix="helm-check-")
     now = time.time()
     try:
         proj = os.path.join(root, "projects", "-tmp")
@@ -994,7 +994,7 @@ def check():
                 {"type": "tool_use", "name": "ExitPlanMode", "input": {"plan": "# Rebuild the strip\n- step"}}]}}))
             fh.write(_line({"type": "assistant", "timestamp": _iso(now - 540), "message": {"content": [
                 {"type": "text", "text": "Done. Ship it now?"}]}}))
-            # Newer than the typed message, and none of them were typed by him.
+            # Newer than the typed message, and none of them were typed by the user.
             fh.write(_typed(now - 300, "<command-name>/clear</command-name>"))
             fh.write(_typed(now - 290, "Caveat: the messages below were generated"))
             fh.write(_line({"type": "user", "isMeta": True, "message": {"content": "meta"},
@@ -1009,7 +1009,7 @@ def check():
         with open(os.path.join(proj, "sid-cc_g7.jsonl"), "w") as fh:
             fh.write(_typed(now - 300, "archived but recent"))
 
-        cockpit = Cockpit(stub, os.path.join(root, "state"), os.path.join(root, "projects"),
+        helm = Helm(stub, os.path.join(root, "state"), os.path.join(root, "projects"),
                           os.path.join(root, "index"))
         token = read_token(os.path.join(root, "token"))
         ok("token file is mode 600 and 32 hex chars",
@@ -1040,7 +1040,7 @@ def check():
         ok("forward scan across many chunks reads each line once",
            len(seen) == 501 and off2 == os.path.getsize(big)
            and [json.loads(x)["i"] for x in seen] == list(range(501)), "%d lines, %d/%d" % (len(seen), off2, os.path.getsize(big)))
-        httpd = make_server(cockpit, token, 0, page)
+        httpd = make_server(helm, token, 0, page)
         port = httpd.server_address[1]
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
@@ -1049,7 +1049,7 @@ def check():
             conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
             headers = {"Host": host or "localhost:%d" % port}
             if tok is not None:
-                headers["X-Cockpit-Token"] = tok
+                headers["X-Helm-Token"] = tok
             data = None
             if method == "POST":
                 data = json.dumps(body if body is not None else {}).encode()
@@ -1104,7 +1104,7 @@ def check():
                 break
             first += part
         try:
-            sock.sendall(b"GET /api/state HTTP/1.1\r\nHost: localhost:%d\r\nX-Cockpit-Token: %s\r\n\r\n"
+            sock.sendall(b"GET /api/state HTTP/1.1\r\nHost: localhost:%d\r\nX-Helm-Token: %s\r\n\r\n"
                          % (port, token.encode()))
             sock.settimeout(2)
             while sock.recv(65536):
@@ -1141,7 +1141,7 @@ def check():
 
         fixture[2]["prs"] = []
         write_fixture()
-        cockpit.refresh()
+        helm.refresh()
         kinds = [(a["id"], a["kind"]) for a in call("GET", "/api/state")[1]["attention"]]
         ok("one oldest decision fills the last slot",
            kinds == [("cc_b2", "asked"), ("cc_d4", "waiting_long"), ("cc_e5", "decision")], json.dumps(kinds))
@@ -1149,10 +1149,10 @@ def check():
         # -- since_away
         ok("first visit records", call("POST", "/api/visit")[0] == 200)
         ok("since_away empty right after a visit", call("GET", "/api/state")[1]["since_away"] == [])
-        v = load_json(cockpit.visit_path, {})
+        v = load_json(helm.visit_path, {})
         v["last"] = int(now - 3600)
         v["prs"]["cc_f6"] = ["repo#2:open", "repo#3:merged"]
-        save_json(cockpit.visit_path, v)
+        save_json(helm.visit_path, v)
         call("POST", "/api/visit")
         away = call("GET", "/api/state")[1]["since_away"]
         ok("since_away after an hour: the ask first, then the PR change",
@@ -1222,21 +1222,21 @@ def check():
         fixture[2]["prs"] = [{"label": "repo#9", "mark": "merged"}]
         fixture[7]["state"] = "pickup"
         write_fixture()
-        cockpit.refresh()
+        helm.refresh()
         ok("one that stops qualifying leaves its slot",
            call("GET", "/api/state")[1]["working_set"] == ["cc_a1", "cc_c3"])
         ok("merged PRs alone do not propose a conversation still in the working set",
            "cc_c3" not in [x["id"] for x in call("GET", "/api/tidy")[1]["probably_done"]])
 
-        real = cockpit._last_user_at
+        real = helm._last_user_at
 
         def boom(_e):
             raise FileNotFoundError("gone")
 
-        cockpit._last_user_at = boom
-        cockpit.refresh()
-        cockpit._last_user_at = real
-        ok("a failed refresh does not leave the refresh flag stuck", cockpit.refreshing is False)
+        helm._last_user_at = boom
+        helm.refresh()
+        helm._last_user_at = real
+        ok("a failed refresh does not leave the refresh flag stuck", helm.refreshing is False)
 
         # -- speed
         times = []
@@ -1255,17 +1255,17 @@ def check():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Local web view of the conversation cockpit.")
+    ap = argparse.ArgumentParser(description="Local web view of the Helm conversations.")
     ap.add_argument("--check", action="store_true", help="run the self-test and exit")
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--verbose", action="store_true", help="log each request")
     args = ap.parse_args()
     if args.check:
         sys.exit(check())
-    cockpit = default_cockpit()
-    token = read_token(os.path.join(HOME, ".claude/cockpit/web-token"))
+    helm = default_helm()
+    token = read_token(os.path.join(HOME, ".claude/helm/web-token"))
     try:
-        httpd = make_server(cockpit, token, args.port, os.path.join(HERE, "index.html"), args.verbose)
+        httpd = make_server(helm, token, args.port, os.path.join(HERE, "index.html"), args.verbose)
     except OSError as err:
         if err.errno != errno.EADDRINUSE:
             raise
@@ -1273,8 +1273,8 @@ def main():
         # every few seconds while something else holds the port.
         print("Port %d is already in use." % args.port, file=sys.stderr, flush=True)
         sys.exit(0)
-    threading.Thread(target=cockpit.refresh, daemon=True).start()
-    print("cockpit: http://localhost:%d" % args.port, flush=True)
+    threading.Thread(target=helm.refresh, daemon=True).start()
+    print("helm: http://localhost:%d" % args.port, flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

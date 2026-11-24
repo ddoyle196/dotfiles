@@ -3,7 +3,7 @@
 
 The index cc-harvest.py keeps is one file of prose per conversation, so this is a
 plain substring scan over a few megabytes -- fast enough to run on a keystroke,
-and with no dependency the cockpit did not already have. Substring, not the
+and with no dependency helm did not already have. Substring, not the
 subsequence match `/` uses on labels: over a megabyte of prose a subsequence
 matches nearly everything.
 
@@ -18,9 +18,9 @@ import os
 import sys
 
 HOME = os.path.expanduser("~")
-COCKPIT = os.path.join(HOME, ".claude", "cockpit")
-TEXT = os.path.join(COCKPIT, "text")
-GONE = os.path.join(COCKPIT, "removed")
+HELM = os.path.join(HOME, ".claude", "helm")
+TEXT = os.path.join(HELM, "text")
+GONE = os.path.join(HELM, "removed")
 SEP = "\x01"
 # Enough of the line to recognise the moment, short enough for one row.
 SNIP = 160

@@ -1,7 +1,7 @@
 -- One nvim terminal per conversation, each holding a tmux client attached to
 -- that conversation's session. Buffers are kept so switching is instant and so
 -- a conversation is never re-attached (which would repaint it).
-local host = require("cockpit.host")
+local host = require("helm.host")
 
 local M = { bufs = {}, win = nil }
 
@@ -61,7 +61,7 @@ end
 -- A parked conversation has no process to attach to, so it is resumed first.
 local function ensure(row)
   if not row.cold then return true end
-  vim.notify("cockpit: resuming " .. row.label, vim.log.levels.INFO)
+  vim.notify("helm: resuming " .. row.label, vim.log.levels.INFO)
   return host.start(row.id) ~= ""
 end
 

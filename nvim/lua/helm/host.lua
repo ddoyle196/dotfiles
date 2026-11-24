@@ -6,7 +6,7 @@ local SCRIPT = vim.fn.expand("~/.tmux/scripts/cc-host.sh")
 local function run(args)
   local out = vim.system(vim.list_extend({ SCRIPT }, args), { text = true }):wait()
   if out.code ~= 0 then
-    vim.notify("cockpit: " .. (out.stderr or "host call failed"), vim.log.levels.ERROR)
+    vim.notify("helm: " .. (out.stderr or "host call failed"), vim.log.levels.ERROR)
     return nil
   end
   return out.stdout

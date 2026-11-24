@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Cockpit</title>
+<title>Helm</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;600;700&display=swap">
@@ -283,7 +283,7 @@ details.reply summary .when { text-transform: none; letter-spacing: 0; font-weig
 <div class="app" id="app">
   <main class="home" id="home">
     <header class="top">
-      <h1 class="word">Cockpit</h1>
+      <h1 class="word">Helm</h1>
       <span id="needSlot"></span>
       <span class="counts" id="counts"></span>
       <span class="note" id="note" role="status"></span>
@@ -355,9 +355,9 @@ details.reply summary .when { text-transform: none; letter-spacing: 0; font-weig
   </div>
 </div>
 
-<script nonce="__COCKPIT_NONCE__">
+<script nonce="__HELM_NONCE__">
 "use strict";
-const TOKEN = "__COCKPIT_TOKEN__";
+const TOKEN = "__HELM_TOKEN__";
 const POLL_MS = 4000;
 const TIDY_MS = 60000;
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
@@ -374,11 +374,11 @@ function store(key, val) {
   try { if (val === undefined) return localStorage.getItem(key); localStorage.setItem(key, val); } catch (e) { return null; }
   return null;
 }
-ui.expanded = store("cockpit.expanded") === "1";
-ui.showFiled = store("cockpit.showFiled") === "1";
+ui.expanded = store("helm.expanded") === "1";
+ui.showFiled = store("helm.showFiled") === "1";
 
 async function api(path, body) {
-  const opt = { headers: { "X-Cockpit-Token": TOKEN }, cache: "no-store" };
+  const opt = { headers: { "X-Helm-Token": TOKEN }, cache: "no-store" };
   if (body !== undefined) {
     opt.method = "POST";
     opt.headers["Content-Type"] = "application/json";
@@ -739,7 +739,7 @@ function renderPanelHead() {
   $("aFile").textContent = c.archived ? "Unfile" : "File";
   $("aResume").disabled = !!c.running;
   $("aResume").textContent = c.running ? "Running" : "Resume";
-  document.title = c.label ? `${c.label} · Cockpit` : "Cockpit";
+  document.title = c.label ? `${c.label} · Helm` : "Helm";
 }
 
 function renderPanelBody() {
@@ -977,7 +977,7 @@ document.getElementById("home").addEventListener("click", (e) => {
   if (e.target.closest("#awayClose")) { ui.awayGone = JSON.stringify(ui.state.since_away || []); ui.away = []; ui.lastKey = ""; render(); $("search").focus(); return; }
   if (e.target.closest("#needBtn")) { jumpNext(); return; }
   if (e.target.closest("#filedBtn")) {
-    ui.showFiled = !ui.showFiled; store("cockpit.showFiled", ui.showFiled ? "1" : "0");
+    ui.showFiled = !ui.showFiled; store("helm.showFiled", ui.showFiled ? "1" : "0");
     ui.lastKey = ""; render(); const b = $("filedBtn"); if (b) b.focus(); return;
   }
   const row = e.target.closest("[data-id]");
@@ -989,7 +989,7 @@ document.getElementById("home").addEventListener("click", (e) => {
 });
 $("moreBtn").addEventListener("click", () => {
   ui.expanded = !ui.expanded;
-  store("cockpit.expanded", ui.expanded ? "1" : "0");
+  store("helm.expanded", ui.expanded ? "1" : "0");
   ui.lastKey = "";
   render();
 });
