@@ -468,22 +468,23 @@ install_openlogi() {
     "$dir/scripts/screenshot-hovered-window.sh"
 
   if [[ "$os" == "macos" ]]; then
-    build_thumbwheel_key "$dir/bin"
+    build_openlogi_helper "$dir/bin" thumbwheel-key
+    build_openlogi_helper "$dir/bin" fn-key
     disable_logi_options_plus
   fi
 }
 
 # Compiled per machine rather than committed: a binary built elsewhere would be
 # quarantined and is tied to the architecture it was built on.
-build_thumbwheel_key() {
-  local out="$1/thumbwheel-key"
+build_openlogi_helper() {
+  local name="$2" out="$1/$2"
   command -v clang &>/dev/null ||
-    { warn "clang not found (xcode-select --install); thumb wheel will do nothing"; return; }
+    { warn "clang not found (xcode-select --install); $name will do nothing"; return; }
   mkdir -p "$1"
-  log "Building thumb wheel helper: $out"
+  log "Building OpenLogi helper: $out"
   clang -O2 -framework ApplicationServices -o "$out" \
-    "$DOTFILES_DIR/openlogi/scripts/thumbwheel-key.c" ||
-    warn "Could not build the thumb wheel helper"
+    "$DOTFILES_DIR/openlogi/scripts/$name.c" ||
+    warn "Could not build $name"
 }
 
 # Logi Options+ and OpenLogi fight over the mouse's HID++ channel, and Logi's

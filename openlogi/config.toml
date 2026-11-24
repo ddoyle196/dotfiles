@@ -75,7 +75,7 @@ fn_lock = false
 
 [devices."serial:2613apbcf448".bindings]
 Back = { CustomShortcut = "Enter" }
-Forward = { CustomShortcut = "Cmd+Ctrl+O" }
+Forward = { RunShellCommand = "\"$HOME/.config/openlogi/bin/fn-key\"" }
 GestureButton = { RunShellCommand = "\"$HOME/.config/openlogi/scripts/screenshot-hovered-window.sh\"" }
 DpiToggle = "ToggleSmartShift"
 HapticPanel = "ShowActionsRing"
