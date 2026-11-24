@@ -99,13 +99,13 @@ config links but those two bindings do nothing yet.
 - **Tmux**: Press `prefix + I` to install plugins via TPM
 - **Neovim**: Plugins auto-install on first launch via lazy.nvim
 
-## Claude cockpit
+## Helm (Claude conversations)
 
 A list of your Claude Code conversations on the left, the one you picked on the
 right. `prefix + a` opens it; the list follows your cursor, so moving down the
 list swaps the conversation beside it.
 
-A conversation is a registry file under `~/.claude/cockpit/`, not a process. The
+A conversation is a registry file under `~/.claude/helm/`, not a process. The
 tmux session is only how it happens to be running right now — when that dies the
 entry stays, and `enter` resumes it from its transcript.
 
@@ -139,7 +139,7 @@ a conversation into it once you can see what it turned out to be, rather than
 asking you to name a category before the work exists.
 
 Claude Code's own `/branch` splits a conversation in two: it copies the history
-and moves you into the copy. The cockpit follows that move, so a `SessionStart`
+and moves you into the copy. Helm follows that move, so a `SessionStart`
 hook registers the conversation you branched away from as a parked row of its
 own, keeping the label it already had. `/branch cars` names the tangent you are
 now in; unnamed, it becomes `… (branch)`. One gesture, two rows, and the train of
@@ -150,29 +150,38 @@ level but a standing opt-in to the Workflow tool, which is what lets a
 conversation nobody is watching fan out instead of waiting to be asked; it holds
 at any effort, so the thinking budget is set separately rather than inherited.
 (`--effort ultracode` would pin it to `xhigh`, which buys long thinking on top of
-the fan-out and is rarely what an unattended conversation needs.) `COCKPIT_EFFORT`
+the fan-out and is rarely what an unattended conversation needs.) `HELM_EFFORT`
 takes `low|medium|high|xhigh|max`, or `none` to leave the effort alone;
-`COCKPIT_ULTRACODE=0` turns the opt-in off. `/effort <level>` and `/effort
+`HELM_ULTRACODE=0` turns the opt-in off. `/effort <level>` and `/effort
 ultracode off` change one conversation.
 
 Helper agents that do not name their own model run on `sonnet` rather than the
-conversation's model. `COCKPIT_SUBAGENT_MODEL` takes any model alias, or `none`
+conversation's model. `HELM_SUBAGENT_MODEL` takes any model alias, or `none`
 to let them inherit.
 
 Each conversation remembers the directory it was started in and resumes there,
-so one cockpit can span several projects. `setup.sh` asks once where *new* ones
-should start and records it in `~/.claude/cockpit/dir`; `COCKPIT_DIR` in the
+so one helm can span several projects. `setup.sh` asks once where *new* ones
+should start and records it in `~/.claude/helm/dir`; `HELM_DIR` in the
 environment overrides it. Nothing needs adding to a shell rc - the tmux server
 usually has a stale environment anyway.
 
 Working below a subdirectory that has its own `CLAUDE.md` loads it on demand, so
-a cockpit rooted at a parent still picks up each subproject's conventions.
+a helm rooted at a parent still picks up each subproject's conventions.
 
 ```sh
 ./setup.sh          # links everything, registers the hooks, asks for the directory
-cockpit doctor      # checks this machine has what the cockpit needs
+helm doctor         # checks this machine has what helm needs
 ```
 
 Needs `tmux`, `jq`, `python3` and the `claude` CLI. `gh` is optional and only
-used for pull-request badges. Nothing about the cockpit is synced except the
+used for pull-request badges. Nothing about helm is synced except the
 code: the conversations themselves are per-machine, so it starts empty.
+
+## Helm lanes
+
+`helm lanes` starts a main chat with a list of lanes beside it, one per piece
+of work. The `lane` CLI (linked into `~/.local/bin` by `setup.sh`) files and
+updates them, and a hook tells the chat which lane is selected.
+
+No local configuration is required. State lives in `~/.claude/helm/`, which is
+never synced. Override `LANES_STATE_DIR` to move it.

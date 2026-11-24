@@ -2,3 +2,4 @@ __pycache__/
 .playwright-mcp/
 openlogi/*.lock
 openlogi/.*.lock
+.DS_Store

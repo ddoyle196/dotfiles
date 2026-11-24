@@ -103,64 +103,121 @@ install_nvim_plugins() {
   nvim --headless "+Lazy! sync" +qa
 }
 
-# The Claude cockpit: prefix+a opens a list of your conversations beside the one
+# One-time move from the old name. Safe to re-run: every step checks first.
+migrate_from_cockpit() {
+  local old="$HOME/.claude/cockpit" new="$HOME/.claude/helm" l f
+  local plist="$HOME/Library/LaunchAgents/com.ddoyle.cockpit-web.plist"
+  local settings="$HOME/.claude/settings.json"
+
+  if [[ -d "$old" && ! -L "$old" ]]; then
+    if [[ -e "$new" && -z $(ls -A "$new/threads" 2>/dev/null) ]]; then
+      # Renamed code recreates an empty dir on first run; the old one holds the real data.
+      local aside="$new.pre-migrate.$(date +%Y%m%d%H%M%S)"
+      log "Setting aside empty $new -> $aside"
+      mv "$new" "$aside"
+    fi
+    if [[ -e "$new" ]]; then
+      warn "Both $old and $new have threads: leaving both, merge by hand"
+    else
+      log "Moving $old -> $new"
+      mv "$old" "$new"
+      for f in "" -wal -shm; do
+        [[ -e "$new/cockpit.db$f" && ! -e "$new/helm.db$f" ]] &&
+          mv "$new/cockpit.db$f" "$new/helm.db$f"
+      done
+    fi
+  fi
+
+  for l in "$HOME/.tmux/scripts/cc-cockpit.sh" "$HOME/.tmux/scripts/cockpit-web" \
+           "$HOME/.claude/hooks/cockpit-branch.py" "$HOME/.local/bin/cockpit"; do
+    [[ -L "$l" ]] && rm "$l"
+  done
+
+  if [[ -e "$plist" ]]; then
+    launchctl bootout "gui/$(id -u)/com.ddoyle.cockpit-web" 2>/dev/null || true
+    rm -f "$plist"
+  fi
+
+  if [[ -f "$settings" ]] && command -v jq &>/dev/null &&
+     grep -q 'hooks/cockpit-branch.py' "$settings"; then
+    cp "$settings" "$settings.backup.$(date +%Y%m%d%H%M%S)"
+    jq 'walk(if type == "string" and . == "$HOME/.claude/hooks/cockpit-branch.py"
+              then "$HOME/.claude/hooks/helm-branch.py" else . end)' \
+       "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+  fi
+}
+
+# Claude helm: prefix+a opens a list of your conversations beside the one
 # you picked. Linked file by file, because ~/.tmux/scripts and ~/.claude/hooks
-# hold other things too. Set COCKPIT_DIR to the directory the conversations
+# hold other things too. Set HELM_DIR to the directory the conversations
 # should run in; setup records it per machine so no shell rc needs editing.
-install_cockpit() {
+install_helm() {
   local f
-  log "Linking Claude cockpit..."
+  log "Linking Claude helm..."
+  migrate_from_cockpit
   mkdir -p "$HOME/.tmux/scripts/lib" "$HOME/.claude/hooks" "$HOME/.local/bin"
-  # save/restore-labels are not cockpit files, but tmux.conf points its resurrect
+  # save/restore-labels are not helm files, but tmux.conf points its resurrect
   # hooks at them, so they have to land in the same place.
-  for f in cc-panel.sh cc-host.sh cc-stage.sh cc-keys.sh cc-cockpit.sh \
+  for f in cc-panel.sh cc-host.sh cc-stage.sh cc-keys.sh cc-helm.sh \
            cc-run-panel.sh cc-list.py cc-harvest.py cc-search.py \
            save-labels.sh restore-labels.sh; do
     backup_and_link "$DOTFILES_DIR/tmux/scripts/$f" "$HOME/.tmux/scripts/$f"
   done
   # Everything in lib/, not a named list: cc-dir.sh was added later and a fresh
-  # install had no way to resolve its cockpit directory without it.
+  # install had no way to resolve its helm directory without it.
   for f in "$DOTFILES_DIR"/tmux/scripts/lib/*; do
     backup_and_link "$f" "$HOME/.tmux/scripts/lib/$(basename "$f")"
   done
   for f in cc-recap-gen.sh cc-recap-trigger.sh nested-claude-md.py chrome-browser-pin.py \
-           cockpit-branch.py; do
+           helm-branch.py lane-context.py; do
     backup_and_link "$DOTFILES_DIR/claude/hooks/$f" "$HOME/.claude/hooks/$f"
   done
-  [[ -f "$DOTFILES_DIR/bin/cockpit" ]] &&
-    backup_and_link "$DOTFILES_DIR/bin/cockpit" "$HOME/.local/bin/cockpit"
-  if [[ -d "$DOTFILES_DIR/cockpit-web" ]]; then
-    backup_and_link "$DOTFILES_DIR/cockpit-web" "$HOME/.tmux/scripts/cockpit-web"
-    install_cockpit_web_agent
+  [[ -f "$DOTFILES_DIR/bin/helm" ]] &&
+    backup_and_link "$DOTFILES_DIR/bin/helm" "$HOME/.local/bin/helm"
+  # Linked as a directory, like helm-web: its files find each other by
+  # sibling path. `lane` goes on PATH because the main chat is told to run it.
+  if [[ -d "$DOTFILES_DIR/tmux/scripts/lanes" ]]; then
+    backup_and_link "$DOTFILES_DIR/tmux/scripts/lanes" "$HOME/.tmux/scripts/lanes"
+    [[ -f "$DOTFILES_DIR/tmux/scripts/lanes/lane" ]] &&
+      backup_and_link "$DOTFILES_DIR/tmux/scripts/lanes/lane" "$HOME/.local/bin/lane"
+  fi
+  if [[ -d "$DOTFILES_DIR/helm-web" ]]; then
+    backup_and_link "$DOTFILES_DIR/helm-web" "$HOME/.tmux/scripts/helm-web"
+    install_helm_web_agent
   fi
 
-  record_cockpit_dir
+  record_helm_dir
   record_pr_owners
   register_recap_hook
   register_nested_md_hook
   register_chrome_pin_hook
-  register_cockpit_branch_hook
+  register_helm_branch_hook
+  register_lane_context_hook
 
   for f in jq python3 tmux claude; do
-    command -v "$f" &>/dev/null || warn "cockpit needs $f on PATH"
+    command -v "$f" &>/dev/null || warn "helm needs $f on PATH"
   done
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) warn "add \$HOME/.local/bin to PATH so 'helm' and 'lane' resolve" ;;
+  esac
 }
 
-# The browser cockpit at http://localhost:7477, kept running by a login agent so
+# Browser helm at http://localhost:7477, kept running by a login agent so
 # the page is simply there. launchd starts agents with a bare system PATH, and
 # the server shells out to tmux, jq, zsh and claude, so the PATH is built from
 # wherever this machine keeps them.
-install_cockpit_web_agent() {
+install_helm_web_agent() {
   if [[ "$(uname -s)" != Darwin ]]; then
-    log "No login agent here: run 'cockpit web' to start the web cockpit"
+    log "No login agent here: run 'helm web' to start helm in the browser"
     return
   fi
-  local label="com.ddoyle.cockpit-web" py c d path="/usr/bin:/bin:/usr/sbin:/sbin"
+  local label="com.ddoyle.helm-web" py c d path="/usr/bin:/bin:/usr/sbin:/sbin"
   local plist="$HOME/Library/LaunchAgents/$label.plist" domain="gui/$(id -u)"
   # The real interpreter, not a pyenv shim: a shim follows whatever version is
   # global at the time, so the agent would change under a later pyenv switch.
   if ! py=$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))' 2>/dev/null); then
-    warn "python3 not found: web cockpit agent not installed"
+    warn "python3 not found: web helm agent not installed"
     return
   fi
   for c in python3 tmux jq zsh claude gh; do
@@ -177,14 +234,14 @@ install_cockpit_web_agent() {
   <key>ProgramArguments</key>
   <array>
     <string>$py</string>
-    <string>$HOME/.tmux/scripts/cockpit-web/server.py</string>
+    <string>$HOME/.tmux/scripts/helm-web/server.py</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict><key>PATH</key><string>$path</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>StandardOutPath</key><string>$HOME/Library/Logs/cockpit-web.log</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/cockpit-web.log</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/helm-web.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/helm-web.log</string>
 </dict>
 </plist>
 EOF
@@ -199,23 +256,23 @@ EOF
     done
   fi
   if launchctl bootstrap "$domain" "$plist"; then
-    log "Web cockpit agent loaded: http://localhost:7477"
+    log "Web helm agent loaded: http://localhost:7477"
   else
-    warn "Could not load $plist; 'cockpit web' starts the server by hand"
+    warn "Could not load $plist; 'helm web' starts the server by hand"
   fi
 }
 
 # Which directory new conversations start in. Recorded in a file the scripts
 # read, not exported into a shell rc: the tmux server carries the environment of
 # whatever launched it, which is rarely the shell you are typing in. Set once,
-# and never guessed - an unset COCKPIT_DIR on a fresh machine means $HOME, which
+# and never guessed - an unset HELM_DIR on a fresh machine means $HOME, which
 # is harmless, rather than a path from somebody else's laptop.
 # Which GitHub owners the PR badges poll. Same file-not-rc reasoning as the
 # directory above. The suggested default is your login plus every org you are
 # in, which is where your own PRs live; empty means poll everything.
 record_pr_owners() {
-  local f="$HOME/.claude/cockpit/pr-owners" owners="${COCKPIT_PR_OWNERS:-}" guess=""
-  mkdir -p "$HOME/.claude/cockpit"
+  local f="$HOME/.claude/helm/pr-owners" owners="${HELM_PR_OWNERS:-}" guess=""
+  mkdir -p "$HOME/.claude/helm"
   if [[ -n "$owners" ]]; then
     :
   elif [[ -s "$f" ]]; then
@@ -232,22 +289,22 @@ record_pr_owners() {
   log "PR badge owners: ${owners:-all}"
 }
 
-record_cockpit_dir() {
-  local f="$HOME/.claude/cockpit/dir" dir="${COCKPIT_DIR:-}"
-  mkdir -p "$HOME/.claude/cockpit" "$HOME/.claude/session-index"
+record_helm_dir() {
+  local f="$HOME/.claude/helm/dir" dir="${HELM_DIR:-}"
+  mkdir -p "$HOME/.claude/helm" "$HOME/.claude/session-index"
   if [[ -n "$dir" ]]; then
     :
   elif [[ -s "$f" ]]; then
-    log "Cockpit directory already set: $(cat "$f")"
+    log "Helm directory already set: $(cat "$f")"
     return
   elif [[ -t 0 ]]; then
-    read -r -p "Directory for new cockpit conversations [$HOME]: " dir
+    read -r -p "Directory for new helm conversations [$HOME]: " dir
   fi
   dir="${dir:-$HOME}"
   eval dir="$dir"                       # let a typed ~ or $HOME expand
-  [[ -d "$dir" ]] || warn "cockpit directory does not exist yet: $dir"
+  [[ -d "$dir" ]] || warn "helm directory does not exist yet: $dir"
   printf '%s\n' "$dir" > "$f"
-  log "Cockpit directory: $dir"
+  log "Helm directory: $dir"
 }
 
 # The recap hook is what keeps the list's one-line summaries current. Linking the
@@ -275,7 +332,7 @@ register_recap_hook() {
 
 # Loads a subdirectory's CLAUDE.md when work reaches that subdirectory, which
 # Claude Code does not do on its own. Bash is in the matcher deliberately: under
-# --dangerously-skip-permissions, which is how the cockpit runs, the agent reads
+# --dangerously-skip-permissions, which is how the helm runs, the agent reads
 # files with `cat` far more often than with the Read tool.
 register_nested_md_hook() {
   local settings="$HOME/.claude/settings.json"
@@ -332,29 +389,53 @@ register_chrome_pin_hook() {
 }
 
 # `/branch` copies the conversation and moves you into the copy, in the same pane,
-# and the cockpit follows that move on its own. Without this the conversation you
+# and helm follows that move on its own. Without this the conversation you
 # branched away from drops off the list; with it, the pane becomes the branch and
 # the original is registered as a parked row beside it. "fork" is the SessionStart
 # source `/branch` resumes under.
-register_cockpit_branch_hook() {
+register_helm_branch_hook() {
   local settings="$HOME/.claude/settings.json"
-  local cmd='$HOME/.claude/hooks/cockpit-branch.py'
+  local cmd='$HOME/.claude/hooks/helm-branch.py'
 
-  command -v jq &>/dev/null || { warn "jq not found, skipping cockpit branch hook"; return; }
+  command -v jq &>/dev/null || { warn "jq not found, skipping helm branch hook"; return; }
   [[ -f "$settings" ]] || echo '{}' > "$settings"
 
   if jq -e --arg c "$cmd" \
        '[.hooks.SessionStart[]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
-    log "Cockpit branch hook already registered"
+    log "Helm branch hook already registered"
     return
   fi
 
-  log "Registering cockpit branch hook in settings.json"
+  log "Registering helm branch hook in settings.json"
   jq --arg c "$cmd" \
      '.hooks.SessionStart = ((.hooks.SessionStart // []) + [{
         matcher: "fork",
         hooks: [{type: "command", command: $c}]
       }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+}
+
+# The lanes main chat learns which lane is selected, and how to file work, from
+# this hook. It exits at once unless CC_LANES_MAIN=1, so registering it for every
+# conversation costs the others nothing.
+register_lane_context_hook() {
+  local settings="$HOME/.claude/settings.json"
+  local cmd='python3 ~/.claude/hooks/lane-context.py' event
+
+  command -v jq &>/dev/null || { warn "jq not found, skipping lane context hook"; return; }
+  [[ -f "$settings" ]] || echo '{}' > "$settings"
+
+  for event in SessionStart UserPromptSubmit; do
+    if jq -e --arg c "$cmd" --arg e "$event" \
+         '[.hooks[$e][]?.hooks[]?.command] | index($c)' "$settings" >/dev/null 2>&1; then
+      log "Lane context hook already registered for $event"
+      continue
+    fi
+    log "Registering lane context hook for $event in settings.json"
+    jq --arg c "$cmd" --arg e "$event" \
+       '.hooks[$e] = ((.hooks[$e] // []) + [{
+          hooks: [{type: "command", command: $c, timeout: 5}]
+        }])' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
+  done
 }
 
 # OpenLogi drives the MX Master 4 in place of Logi Options+. Linked file by file,
@@ -463,7 +544,7 @@ main() {
     warn "Skipping tmux on native Windows. Use WSL for tmux support."
   else
     backup_and_link "$DOTFILES_DIR/tmux.conf" "$HOME/.tmux.conf"
-    install_cockpit
+    install_helm
     install_openlogi "$os"
     install_tpm
     # A running server is still on the old config; without this the new
